@@ -13,12 +13,11 @@ app.use(cors({
         "http://localhost:5173",
         "https://assetverse-server-side-ms011a011.vercel.app"
     ],
+
     credentials: true
 }));
 app.use(express.json());
 
-// আপনার ইউআরআই (URI)
-// সংশোধিত ফরম্যাট (ডাটাবেস নাম সহ)
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@aimodelmanagerdb.du0jjco.mongodb.net/AssetVerseDB?retryWrites=true&w=majority&appName=AssetVerseDB`;;
 
 const client = new MongoClient(uri, {
@@ -31,23 +30,22 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        // ডাটাবেস এবং কালেকশনগুলো আপনার সঠিক নাম অনুযায়ী সেট করা হলো
+        
         const db = client.db("AssetVerseDB"); 
         const usersCollection = db.collection("users");
         const assetsCollection = db.collection("assets");
 
         console.log("Successfully connected to AssetVerseDB!");
 
-        // --- ROLE API ---
+        //ROLE API
         app.get('/users/role/:email', async (req, res) => {
             try {
                 const email = req.params.email;
                 if (!email) return res.status(400).send({ message: "Email required" });
 
-                // ডাটাবেস থেকে ইমেইল অনুযায়ী ইউজার খোঁজা
+                
                 const user = await usersCollection.findOne({ email: email });
                 
-                // ইউজার না থাকলে role: null দিবে
                 res.send({ role: user?.role || null });
             } catch (error) {
                 console.error("Role API Error:", error.message);
@@ -55,14 +53,14 @@ async function run() {
             }
         });
 
-        // --- JWT API ---
+        // JWT API
         app.post('/jwt', async (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
             res.send({ token });
         });
 
-        // --- USER API ---
+        //USER API
         app.post('/users', async (req, res) => {
             const user = req.body;
             const query = { email: user.email };
