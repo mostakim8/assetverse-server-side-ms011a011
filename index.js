@@ -7,19 +7,18 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
 const port = process.env.PORT || 5001;
 
-// Middleware
 app.use(cors({
     origin: [
         "http://localhost:5173",
-        "https://assetverse-server-side-ms011a011.vercel.app",
+        "https://assetverse-5cb01.web.app",        // 
+        "https://assetverse-5cb01.firebaseapp.com",
         "https://inspiring-medovik-fc9331.netlify.app"
     ],
-
     credentials: true
 }));
 app.use(express.json());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@aimodelmanagerdb.du0jjco.mongodb.net/AssetVerseDB?retryWrites=true&w=majority&appName=AssetVerseDB`;;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@aimodelmanagerdb.du0jjco.mongodb.net/?retryWrites=true&w=majority&appName=AssetVerseDB`;
 
 const client = new MongoClient(uri, {
     serverApi: {
@@ -31,37 +30,29 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
+        await client.connect(); 
         
-        const db = client.db("AssetVerseDB"); 
+        const db = client.db("AssetVerseDB");
         const usersCollection = db.collection("users");
         const assetsCollection = db.collection("assets");
 
         console.log("Successfully connected to AssetVerseDB!");
 
-        //ROLE API
-        app.get('/users/role/:email', async (req, res) => {
-            try {
-                const email = req.params.email;
-                if (!email) return res.status(400).send({ message: "Email required" });
-
-                
-                const user = await usersCollection.findOne({ email: email });
-                
-                res.send({ role: user?.role || null });
-            } catch (error) {
-                console.error("Role API Error:", error.message);
-                res.status(500).send({ message: "Internal Server Error", error: error.message });
-            }
-        });
-
-        // JWT API
+        //  AUTH / JWT API 
         app.post('/jwt', async (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
             res.send({ token });
         });
 
-        //USER API
+        
+        app.get('/users/role/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            res.send({ role: user?.role || null });
+        });
+
         app.post('/users', async (req, res) => {
             const user = req.body;
             const query = { email: user.email };
@@ -73,14 +64,26 @@ async function run() {
             res.send(result);
         });
 
+        // ASSETS API
+
+        
+        app.get('/all-available-assets', async (req, res) => {
+            const search = req.query.search || "";
+            const query = {
+                productName: { $regex: search, $options: 'i' }
+            };
+            const result = await assetsCollection.find(query).toArray();
+            res.send(result);
+        });
+
     } catch (error) {
-        console.error("Database Connection Failed:", error);
+        console.error("Database Connection Error:", error);
     }
 }
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
-    res.send('AssetVerse Server is running with AssetVerseDB');
+    res.send('AssetVerse Server is running with Full Support');
 });
 
 app.listen(port, () => {
