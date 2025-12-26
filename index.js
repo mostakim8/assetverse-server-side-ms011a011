@@ -29,18 +29,16 @@ const client = new MongoClient(uri, {
     }
 });
 
-// কালেকশনগুলো গ্লোবাল ভেরিয়েবল হিসেবে রাখা ভালো
 let usersCollection;
 let assetsCollection;
+let requestsCollection; // নতুন কালেকশন
 
 async function run() {
     try {
-        // Vercel এর জন্য কানেকশন
-        // await client.connect(); // সার্ভারলেস এনভায়রনমেন্টে এটি অপশনাল হতে পারে
-        
         const db = client.db("AssetVerseDB");
         usersCollection = db.collection("users");
         assetsCollection = db.collection("assets");
+        requestsCollection = db.collection("assetRequests");
 
         console.log("Successfully connected to MongoDB!");
     } catch (error) {
@@ -49,11 +47,9 @@ async function run() {
 }
 run().catch(console.dir);
 
-// --- API ROUTES (run ফাংশনের বাইরে) ---
+// --- API ROUTES ---
 
-app.get('/', (req, res) => {
-    res.send('AssetVerse Server is running...');
-});
+app.get('/', (req, res) => res.send('AssetVerse Server is running...'));
 
 // ১. JWT API
 app.post('/jwt', async (req, res) => {
@@ -62,47 +58,88 @@ app.post('/jwt', async (req, res) => {
     res.send({ token });
 });
 
-// ২. ইউজারের রোল চেক করার এপিআই
+// ২. User Role API
 app.get('/users/role/:email', async (req, res) => {
     try {
         const email = req.params.email;
-        if (!usersCollection) {
-            return res.status(500).send({ message: "Database not initialized" });
-        }
-        const query = { email: email };
-        const user = await usersCollection.findOne(query);
+        const user = await usersCollection.findOne({ email });
         res.send({ role: user?.role || null });
-    } catch (error) {
-        res.status(500).send({ message: error.message });
-    }
+    } catch (error) { res.status(500).send(error.message) }
 });
 
-// ৩. ইউজার ডাটা সেভ করা
-app.post('/users', async (req, res) => {
-    const user = req.body;
-    const query = { email: user.email };
-    const existingUser = await usersCollection.findOne(query);
-    if (existingUser) {
-        return res.send({ message: 'user already exists', insertedId: null });
-    }
-    const result = await usersCollection.insertOne(user);
+// ৩. Add Asset (HR adds assets)
+app.post('/assets', async (req, res) => {
+    const asset = req.body;
+    const result = await assetsCollection.insertOne(asset);
     res.send(result);
 });
 
-// ৪. সব অ্যাসেট লোড করার এপিআই
-app.get('/all-available-assets', async (req, res) => {
-    try {
-        const search = req.query.search || "";
-        const query = {
-            productName: { $regex: search, $options: 'i' }
-        };
-        const result = await assetsCollection.find(query).toArray();
-        res.send(result);
-    } catch (error) {
-        res.status(500).send({ message: error.message });
-    }
+// ৪. Request Workflow: Employee requests an asset
+app.post('/asset-requests', async (req, res) => {
+    const request = req.body; // { assetId, assetName, userEmail, userName, hrEmail, status: 'pending' }
+    const result = await requestsCollection.insertOne(request);
+    res.send(result);
 });
 
-app.listen(port, () => {
-    console.log(`Server is running on port: ${port}`);
+// ৫. Approval & Affiliation: HR approves request
+app.patch('/asset-requests/approve/:id', async (req, res) => {
+    const id = req.params.id;
+    const { userEmail, hrEmail, companyName, assetId } = req.body;
+
+    // ক) আপডেট রিকোয়েস্ট স্ট্যাটাস
+    await requestsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: 'approved', approvalDate: new Date() } }
+    );
+
+    // খ) অটো-অ্যাফিলিয়েশন (এমপ্লয়ির প্রোফাইলে কোম্পানি সেট করা)
+    await usersCollection.updateOne(
+        { email: userEmail },
+        { $set: { hrEmail, companyName } }
+    );
+
+    // গ) ইনভেন্টরি থেকে স্টক কমানো
+    await assetsCollection.updateOne(
+        { _id: new ObjectId(assetId) },
+        { $inc: { productQuantity: -1 } }
+    );
+
+    res.send({ success: true });
 });
+
+// ৬. Direct Assignment: HR manually assigns
+app.post('/direct-assign', async (req, res) => {
+    const assignment = req.body; 
+    const assignmentData = { ...assignment, status: 'approved', assignedDate: new Date() };
+    
+    const result = await requestsCollection.insertOne(assignmentData);
+
+    // স্টক কমানো
+    await assetsCollection.updateOne(
+        { _id: new ObjectId(assignment.assetId) },
+        { $inc: { productQuantity: -1 } }
+    );
+    res.send(result);
+});
+
+// ৭. Return Process: Employee returns asset
+app.patch('/asset-return/:id', async (req, res) => {
+    const id = req.params.id;
+    const { assetId } = req.body;
+
+    // ক) স্ট্যাটাস আপডেট
+    await requestsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: 'returned', returnDate: new Date() } }
+    );
+
+    // খ) স্টক বাড়ানো
+    await assetsCollection.updateOne(
+        { _id: new ObjectId(assetId) },
+        { $inc: { productQuantity: 1 } }
+    );
+
+    res.send({ success: true });
+});
+
+app.listen(port, () => console.log(`Port: ${port}`));
