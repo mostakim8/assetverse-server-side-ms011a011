@@ -11,7 +11,8 @@ const port = process.env.PORT || 5001;
 app.use(cors({
     origin: [
         "http://localhost:5173",
-        "https://assetverse-server-side-ms011a011.vercel.app"
+        "https://assetverse-server-side-ms011a011.vercel.app",
+        "https://inspiring-medovik-fc9331.netlify.app"
     ],
 
     credentials: true
