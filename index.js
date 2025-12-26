@@ -9,8 +9,9 @@ const port = process.env.PORT || 5001;
 
 app.use(cors({
    origin: [
+    // "https://assetverse-server-side-ms011a011.vercel.app", //vercel deployment
         "http://localhost:5173",   //localhost for development
-        "https://assetverse-server-side-ms011a011.vercel.app", //vercel deployment
+        
     
         "https://assetverse-5cb01.web.app", //
 
