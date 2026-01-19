@@ -227,6 +227,13 @@ async function run() {
             res.send(result);
         });
 
+        //notice
+        // Notice Post Endpoint
+app.post('/notices', verifyToken, verifyHR, async (req, res) => {
+    const notice = req.body;
+    const result = await noticesCollection.insertOne(notice);
+    res.send(result);
+});
        // request management APIs
 
         app.post('/requests', verifyToken, async (req, res) => {
