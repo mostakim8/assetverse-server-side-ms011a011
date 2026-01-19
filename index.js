@@ -158,16 +158,52 @@ async function run() {
             res.send(result);
         });
 
+        // app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
+        //     const { search, filter, sort } = req.query;
+        //     let query = { hrEmail: req.params.email };
+        //     if (search) query.productName = { $regex: search, $options: 'i' };
+        //     if (filter) query.productType = filter;
+        //     let sortOption = {};
+        //     if (sort === 'quantity') sortOption.productQuantity = -1;
+        //     const result = await assetsCollection.find(query).sort(sortOption).toArray();
+        //     res.send(result);
+        // });
         app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
-            const { search, filter, sort } = req.query;
-            let query = { hrEmail: req.params.email };
-            if (search) query.productName = { $regex: search, $options: 'i' };
-            if (filter) query.productType = filter;
-            let sortOption = {};
-            if (sort === 'quantity') sortOption.productQuantity = -1;
-            const result = await assetsCollection.find(query).sort(sortOption).toArray();
-            res.send(result);
-        });
+    try {
+        const { search, filter, sort, page, limit } = req.query;
+        const email = req.params.email;
+        
+        // ১. কুয়েরি তৈরি
+        let query = { hrEmail: email };
+        if (search) query.productName = { $regex: search, $options: 'i' };
+        if (filter) query.productType = filter;
+
+        // ২. সর্টিং
+        let sortOption = {};
+        if (sort === 'quantity') sortOption.productQuantity = -1;
+
+        // ৩. পেজিনেশন লজিক (ফ্রন্টএন্ডের জন্য জরুরি)
+        const pageNumber = parseInt(page) || 1;
+        const limitNumber = parseInt(limit) || 10;
+        const skip = (pageNumber - 1) * limitNumber;
+
+        // ৪. ডেটা ফেচ করা
+        const result = await assetsCollection.find(query)
+            .sort(sortOption)
+            .skip(skip)
+            .limit(limitNumber)
+            .toArray();
+
+        // ৫. মোট কয়টি অ্যাসেট আছে তা বের করা
+        const totalCount = await assetsCollection.countDocuments(query);
+
+        // ৬. ফ্রন্টএন্ডের ডিভাইন করা ফরম্যাটে ডেটা পাঠানো
+        res.send({ result, totalCount });
+        
+    } catch (error) {
+        res.status(500).send({ message: "Internal Server Error" });
+    }
+});
 
         app.put('/assets/:id', verifyToken, verifyHR, async (req, res) => {
             const id = req.params.id;
