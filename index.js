@@ -3,6 +3,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Stripe initialized
 
 const app = express();
 const port = process.env.PORT || 5001;
@@ -14,7 +15,6 @@ app.use(cors({
       'http://localhost:5174',  
       'https://inspiring-medovik-fc9331.netlify.app'
     ],
-    
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     optionsSuccessStatus: 200,
@@ -39,10 +39,11 @@ async function run() {
         const usersCollection = db.collection("users");
         const assetsCollection = db.collection("assets");
         const requestsCollection = db.collection("requests");
+        const noticesCollection = db.collection("notices"); // Added Notice Collection
 
         console.log("Connected to AssetVerseDB Successfully!");
 
-       //JWT & Security Middlewares
+        // --- JWT & Security Middlewares ---
         
         app.post('/jwt', async (req, res) => {
             const user = req.body;
@@ -73,7 +74,7 @@ async function run() {
             next();
         };
 
-        //user and team management
+        // --- User and Team Management ---
         
         app.get('/users/role/:email', async (req, res) => {
             const user = await usersCollection.findOne({ email: req.params.email });
@@ -122,13 +123,11 @@ async function run() {
             res.send(result);
         });
 
-//see own employees
         app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.find({ hrEmail: req.params.email }).toArray();
             res.send(result);
         });
 
-        // remove employee from team
         app.patch('/employees/remove/:id', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.updateOne(
                 { _id: new ObjectId(req.params.id) },
@@ -137,7 +136,6 @@ async function run() {
             res.send(result);
         });
 
-        // see own team (for employees)
         app.get('/my-team/:email', verifyToken, async (req, res) => {
             const user = await usersCollection.findOne({ email: req.params.email });
             if (!user || !user.hrEmail) return res.send([]);
@@ -145,9 +143,8 @@ async function run() {
             res.send(team);
         });
 
-        // Asset Management APIs
+        // --- Asset Management APIs ---
         
-
         app.post('/assets', verifyToken, verifyHR, async (req, res) => {
             const assetData = req.body;
             const result = await assetsCollection.insertOne({
@@ -158,52 +155,27 @@ async function run() {
             res.send(result);
         });
 
-        // app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
-        //     const { search, filter, sort } = req.query;
-        //     let query = { hrEmail: req.params.email };
-        //     if (search) query.productName = { $regex: search, $options: 'i' };
-        //     if (filter) query.productType = filter;
-        //     let sortOption = {};
-        //     if (sort === 'quantity') sortOption.productQuantity = -1;
-        //     const result = await assetsCollection.find(query).sort(sortOption).toArray();
-        //     res.send(result);
-        // });
         app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
-    try {
-        const { search, filter, sort, page, limit } = req.query;
-        const email = req.params.email;
-        
-        // ১. কুয়েরি তৈরি
-        let query = { hrEmail: email };
-        if (search) query.productName = { $regex: search, $options: 'i' };
-        if (filter) query.productType = filter;
+            try {
+                const { search, filter, sort, page, limit } = req.query;
+                const email = req.params.email;
+                let query = { hrEmail: email };
+                if (search) query.productName = { $regex: search, $options: 'i' };
+                if (filter) query.productType = filter;
+                let sortOption = {};
+                if (sort === 'quantity') sortOption.productQuantity = -1;
 
-        // ২. সর্টিং
-        let sortOption = {};
-        if (sort === 'quantity') sortOption.productQuantity = -1;
+                const pageNumber = parseInt(page) || 1;
+                const limitNumber = parseInt(limit) || 10;
+                const skip = (pageNumber - 1) * limitNumber;
 
-        // ৩. পেজিনেশন লজিক (ফ্রন্টএন্ডের জন্য জরুরি)
-        const pageNumber = parseInt(page) || 1;
-        const limitNumber = parseInt(limit) || 10;
-        const skip = (pageNumber - 1) * limitNumber;
-
-        // ৪. ডেটা ফেচ করা
-        const result = await assetsCollection.find(query)
-            .sort(sortOption)
-            .skip(skip)
-            .limit(limitNumber)
-            .toArray();
-
-        // ৫. মোট কয়টি অ্যাসেট আছে তা বের করা
-        const totalCount = await assetsCollection.countDocuments(query);
-
-        // ৬. ফ্রন্টএন্ডের ডিভাইন করা ফরম্যাটে ডেটা পাঠানো
-        res.send({ result, totalCount });
-        
-    } catch (error) {
-        res.status(500).send({ message: "Internal Server Error" });
-    }
-});
+                const result = await assetsCollection.find(query).sort(sortOption).skip(skip).limit(limitNumber).toArray();
+                const totalCount = await assetsCollection.countDocuments(query);
+                res.send({ result, totalCount });
+            } catch (error) {
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
 
         app.put('/assets/:id', verifyToken, verifyHR, async (req, res) => {
             const id = req.params.id;
@@ -217,7 +189,7 @@ async function run() {
             const result = await assetsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
             res.send(result);
         });
-// available assets for employees to request
+
         app.get('/available-assets/:hrEmail', verifyToken, async (req, res) => {
             const { search, type } = req.query;
             let query = { hrEmail: req.params.hrEmail, productQuantity: { $gt: 0 } };
@@ -227,14 +199,53 @@ async function run() {
             res.send(result);
         });
 
-        //notice
-        // Notice Post Endpoint
-app.post('/notices', verifyToken, verifyHR, async (req, res) => {
-    const notice = req.body;
-    const result = await noticesCollection.insertOne(notice);
-    res.send(result);
-});
-       // request management APIs
+        // --- Notice APIs ---
+
+        app.post('/notices', verifyToken, verifyHR, async (req, res) => {
+            const notice = req.body;
+            const result = await noticesCollection.insertOne(notice);
+            res.send(result);
+        });
+
+        app.get('/notices/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            // Get user to find their HR
+            const user = await usersCollection.findOne({ email });
+            const hrEmail = user?.role === 'hr' ? email : user?.hrEmail;
+            if (!hrEmail) return res.send([]);
+            const result = await noticesCollection.find({ hrEmail }).sort({ createdAt: -1 }).toArray();
+            res.send(result);
+        });
+
+        // --- Payment & Stripe APIs ---
+
+        app.post('/create-payment-intent', verifyToken, async (req, res) => {
+            const { price } = req.body;
+            if (!price) return res.status(400).send({ message: "Price is required" });
+            const amount = parseInt(price * 100);
+            try {
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount,
+                    currency: 'usd',
+                    payment_method_types: ['card'],
+                });
+                res.send({ clientSecret: paymentIntent.client_secret });
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.patch('/upgrade-package/:email', verifyToken, verifyHR, async (req, res) => {
+            const email = req.params.email;
+            const { newLimit, transactionId } = req.body;
+            const result = await usersCollection.updateOne(
+                { email: email },
+                { $set: { memberLimit: parseInt(newLimit), paymentStatus: 'paid', lastTransactionId: transactionId } }
+            );
+            res.send(result);
+        });
+
+        // --- Request Management APIs ---
 
         app.post('/requests', verifyToken, async (req, res) => {
             const request = req.body;
@@ -295,7 +306,7 @@ app.post('/notices', verifyToken, verifyHR, async (req, res) => {
             res.send(updateRequest);
         });
 
-        //dashboard stats APIs
+        // --- Dashboard Stats APIs ---
         
         app.get('/hr-stats/:email', verifyToken, verifyHR, async (req, res) => {
             const email = req.params.email;
@@ -318,5 +329,6 @@ app.post('/notices', verifyToken, verifyHR, async (req, res) => {
     } finally { }
 }
 run().catch(console.dir);
+
 app.get('/', (req, res) => res.send('AssetVerse Server is Secure and Running'));
 app.listen(port, () => console.log(`Server on port ${port}`));
