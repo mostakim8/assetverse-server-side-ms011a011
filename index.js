@@ -235,15 +235,23 @@ async function run() {
             }
         });
 
-        app.patch('/upgrade-package/:email', verifyToken, verifyHR, async (req, res) => {
-            const email = req.params.email;
-            const { newLimit, transactionId } = req.body;
-            const result = await usersCollection.updateOne(
-                { email: email },
-                { $set: { memberLimit: parseInt(newLimit), paymentStatus: 'paid', lastTransactionId: transactionId } }
-            );
-            res.send(result);
-        });
+        // backend (index.js)
+app.patch('/upgrade-package/:email', verifyToken, async (req, res) => { // verifyHR বাদ দিন
+    const email = req.params.email;
+    const { newLimit, transactionId } = req.body;
+    
+    const result = await usersCollection.updateOne(
+        { email: email },
+        { 
+            $set: { 
+                memberLimit: parseInt(newLimit) || 0, 
+                paymentStatus: 'paid', 
+                lastTransactionId: transactionId 
+            } 
+        }
+    );
+    res.send(result);
+});
 
         // --- Request Management APIs ---
 
