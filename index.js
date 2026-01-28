@@ -453,19 +453,20 @@ const userData = await usersCollection.findOne({ email: email });
 // Join Request API
 app.patch('/users/join-request/:email', async (req, res) => {
     const email = req.params.email;
-    const info = req.body;
+    const {hrEmail} = req.body;
     const filter = { email: email };
     
     // চেক করুন ইউজার আগে থেকেই অন্য কোনো কোম্পানিতে আছে কি না
     const user = await usersCollection.findOne(filter);
-    if(user?.hrEmail) {
-        return res.status(400).send({ message: "You are already affiliated with a company!" });
+
+
+    if(user?.hrEmail || user?.status==='pending') {
+        return res.status(400).send({ message: "You are already pending request or affiliation a company!" });
     }
 
     const updateDoc = {
         $set: {
-            hrEmail: info.hrEmail,
-            companyName: info.companyName,
+            hrEmail: hrEmail,
             status: 'pending' // শুরুতে পেন্ডিং থাকবে
         }
     };
@@ -497,6 +498,8 @@ app.patch('/users/approve-request/:email', async (req, res) => {
 
     // ১. HR এর বর্তমান প্যাকেজ লিমিট এবং মেম্বার সংখ্যা বের করুন
     const hr = await usersCollection.findOne({ email: hrEmail });
+
+    
     const currentMemberCount = await usersCollection.countDocuments({ 
         hrEmail: hrEmail, 
         status: 'joined' 
@@ -512,7 +515,12 @@ app.patch('/users/approve-request/:email', async (req, res) => {
     // ৩. যদি লিমিট থাকে, তবে স্ট্যাটাস 'joined' করে দিন
     const filter = { email: email };
     const updateDoc = {
-        $set: { status: 'joined' }
+        $set: { 
+            status: 'joined',
+            companyName: hr.companyName, // HR এর কোম্পানি নাম এখানে সেট হচ্ছে
+            companyLogo: hr.companyLogo,
+            joinedDate: new Date().toLocaleDateString()
+         }
     };
     const result = await usersCollection.updateOne(filter, updateDoc);
     res.send(result);
