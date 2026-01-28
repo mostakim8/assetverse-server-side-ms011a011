@@ -12,8 +12,7 @@ const port = process.env.PORT || 5001;
 app.use(cors({
     origin: [
       'http://localhost:5173', 
-      'http://localhost:5175',  
-      'http://localhost:5177',
+      'http://localhost:5174',  
       'https://inspiring-medovik-fc9331.netlify.app'
     ],
     credentials: true,
@@ -77,17 +76,11 @@ async function run() {
 
         // --- User and Team Management ---
         
-        // app.get('/users/role/:email', async (req, res) => {
-        //     const user = await usersCollection.findOne({ email: req.params.email });
-        //     res.send({ role: user?.role || null });
-        // });
+        app.get('/users/role/:email', async (req, res) => {
+            const user = await usersCollection.findOne({ email: req.params.email });
+            res.send({ role: user?.role || null });
+        });
 
-       app.get('/users/role/:email', async (req, res) => {
-    const email = req.params.email;
-    const query = { email: email };
-    const user = await usersCollection.findOne(query);
-    res.send({ role: user?.role });
-});
         app.get('/users/:email', verifyToken, async (req, res) => {
             const result = await usersCollection.findOne({ email: req.params.email });
             res.send(result);
@@ -122,15 +115,7 @@ async function run() {
         });
 
         app.patch('/add-to-team', verifyToken, verifyHR, async (req, res) => {
-
             const { employeeIds, hrEmail, companyName, companyLogo } = req.body;
-            // ১. HR-এর বর্তমান লিমিট চেক করুন
-    const hr = await usersCollection.findOne({ email: hrEmail });
-    const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
-
-    if (currentTeamCount >= hr.employeeLimit) {
-        return res.status(400).send({ message: "Package limit exceeded. Please upgrade!" });
-    }
             const result = await usersCollection.updateMany(
                 { _id: { $in: employeeIds.map(id => new ObjectId(id)) } },
                 { $set: { hrEmail, companyName, companyLogo, joinedDate: new Date().toLocaleDateString() } }
@@ -139,30 +124,9 @@ async function run() {
         });
 
         app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
-    try {
-        const hrEmail = req.params.email;
-        const searchText = req.query.search || ""; // ফ্রন্টএন্ড থেকে আসা সার্চ প্যারামিটার
-
-        // কোয়েরি অবজেক্ট তৈরি
-        const query = { 
-            hrEmail: hrEmail 
-        };
-
-        // যদি সার্চ বক্সে কিছু লেখা থাকে, তবেই ফিল্টার যোগ হবে
-        if (searchText) {
-            query.$or = [
-                { name: { $regex: searchText, $options: 'i' } }, // i মানে Case-Insensitive (বড়/ছোট হাতের অক্ষর ম্যাটার করবে না)
-                { email: { $regex: searchText, $options: 'i' } }
-            ];
-        }
-
-        const result = await usersCollection.find(query).toArray();
-        res.send(result);
-    } catch (error) {
-        console.error("Search Error:", error);
-        res.status(500).send({ message: "Internal Server Error" });
-    }
-});
+            const result = await usersCollection.find({ hrEmail: req.params.email }).toArray();
+            res.send(result);
+        });
 
         app.patch('/employees/remove/:id', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.updateOne(
@@ -180,40 +144,7 @@ async function run() {
         });
 
         // --- Asset Management APIs ---
-        // employee page এ অ্যাসেট দেখানোর জন্য এপিআই
-app.get('/my-company-assets/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const { search, filter } = req.query;
-
-    // ১. প্রথমে ইউজার থেকে তার HR এর ইমেইল বের করা
-    const user = await usersCollection.findOne({ email: email });
-    if (!user || !user.hrEmail) {
-        return res.send([]);
-    }
-
-    // ২. কুয়েরি তৈরি (শুধুমাত্র সেই কোম্পানির এবং স্টকে থাকা অ্যাসেট)
-    let query = { 
-        hrEmail: user.hrEmail, 
-        productQuantity: { $gt: 0 } 
-    };
-
-    if (search) {
-        query.productName = { $regex: search, $options: 'i' };
-    }
-    if (filter) {
-        query.productType = filter;
-    }
-
-    const result = await assetsCollection.find(query).toArray();
-    res.send(result);
-});
-
-// ৩. অ্যাসেট রিকোয়েস্ট সেভ করার এপিআই (সঠিক কালেকশন নাম নিশ্চিত করুন)
-app.post('/asset-requests', verifyToken, async (req, res) => {
-    const requestData = req.body;
-    const result = await requestsCollection.insertOne(requestData);
-    res.send(result);
-});
+        
         app.post('/assets', verifyToken, verifyHR, async (req, res) => {
             const assetData = req.body;
             const result = await assetsCollection.insertOne({
@@ -286,71 +217,65 @@ app.post('/asset-requests', verifyToken, async (req, res) => {
             res.send(result);
         });
 
-       app.get('/team-birthdays/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const user = await usersCollection.findOne({ email });
-    
-    if (!user || !user.hrEmail) return res.send([]);
-
-    const teamMembers = await usersCollection.find({ 
-        hrEmail: user.hrEmail,
-        dob: { $exists: true } 
-    }).toArray();
-
-    const today = new Date();
-    const currentMonth = today.getMonth() + 1;
-    const currentDate = today.getDate();
-
-    const upcomingBirthdays = teamMembers.filter(member => {
-        if (!member.dob) return false;
-        const [year, month, day] = member.dob.split('-').map(Number); // dob ব্যবহার করুন
-        return month === currentMonth && day >= currentDate;
-    }).sort((a, b) => {
-        const dayA = parseInt(a.dob.split('-')[2]);
-        const dayB = parseInt(b.dob.split('-')[2]);
-        return dayA - dayB;
-    });
-
-    res.send(upcomingBirthdays);
-});
         // --- Payment & Stripe APIs ---
 
-        // ১. পেমেন্ট ইনটেন্ট তৈরি
-app.post('/create-payment-intent', verifyToken, async (req, res) => {
-    const { price } = req.body;
-    const amount = Math.round(price * 100); 
-
-    const paymentIntent = await stripe.paymentIntents.create({
-        amount: amount,
-        currency: 'usd',
-        payment_method_types: ['card'],
-    });
-
-    res.send({ clientSecret: paymentIntent.client_secret });
-});
+        app.post('/create-payment-intent', verifyToken, async (req, res) => {
+            const { price } = req.body;
+            if (!price) return res.status(400).send({ message: "Price is required" });
+            const amount = parseInt(price * 100);
+            try {
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount,
+                    currency: 'usd',
+                    payment_method_types: ['card'],
+                });
+                res.send({ clientSecret: paymentIntent.client_secret });
+            } catch (error) {
+                res.status(500).send({ error: error.message });
+            }
+        });
 
         // backend (index.js)
 
 
-// ২. মেম্বারশিপ প্যাকেজ আপডেট
 app.patch('/upgrade-package/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const { newLimit, transactionId } = req.body;
-    
-    const query = { email: email };
-    const updateDoc = {
-        $set: { 
-            employeeLimit: parseInt(newLimit),
-            status: 'active',
-            lastTransactionId: transactionId 
+    try {
+        const email = req.params.email;
+        const { newLimit, transactionId } = req.body;
+        
+        if (!newLimit) {
+            return res.status(400).send({ success: false, message: "Limit value is required" });
         }
-    };
+        
+        const updateValue = parseInt(newLimit);
+        console.log(`Upgrading ${email} to ${updateValue} employees`);
 
-    const result = await usersCollection.updateOne(query, updateDoc);
-    res.send({ 
-        success: result.modifiedCount > 0 || result.matchedCount > 0, 
-        matchedCount: result.matchedCount 
-    });
+        const result = await usersCollection.updateOne(
+            { email: email },
+            { 
+                $set: { 
+                    employeeLimit: updateValue,
+                    paymentStatus: 'paid', 
+                    lastTransactionId: transactionId 
+                },
+                $unset: { 
+                    memberLimit: 1, 
+                    packageLimit: 1,
+                    NaN: 1 
+                } 
+            }
+        );
+
+        if (result.matchedCount > 0) {
+            console.log(`Successfully upgraded ${email} - Modified: ${result.modifiedCount}`);
+            res.send({ success: true, message: "Upgraded Successfully", employeeLimit: updateValue });
+        } else {
+            res.status(404).send({ success: false, message: "User not found" });
+        }
+    } catch (error) {
+        console.error("Upgrade Error:", error);
+        res.status(500).send({ success: false, message: "Server Error" });
+    }
 });
         // --- Request Management APIs ---
 
@@ -426,25 +351,12 @@ app.patch('/upgrade-package/:email', verifyToken, async (req, res) => {
 
         app.get('/employee-stats/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
-const userData = await usersCollection.findOne({ email: email });
             const pendingRequests = await requestsCollection.find({ userEmail: email, status: 'Pending' }).toArray();
-
             const allRequests = await requestsCollection.find({ userEmail: email }).toArray();
-
             const currentMonth = new Date().getMonth();
-
             const monthlyCount = allRequests.filter(r => new Date(r.requestDate).getMonth() === currentMonth).length;
-
-            const monthlyAssets = allRequests.filter(r => r.status === 'Approved');
-            res.send({ userData,pendingRequests, monthlyCount, monthlyAssets});
+            res.send({ pendingRequests, monthlyCount });
         });
-
-        app.get('/user-info/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const user = await usersCollection.findOne({ email: email });
-    // যদি ইউজারের hrEmail বা companyName থাকে, তবেই সে অ্যাফিলিয়েটেড
-    res.send(user); 
-});
 
     } finally { }
 }
