@@ -454,6 +454,10 @@ const userData = await usersCollection.findOne({ email: email });
 app.patch('/users/join-request/:email', async (req, res) => {
     const email = req.params.email;
     const {hrEmail} = req.body;
+
+    if (!hrEmail) {
+        return res.status(400).send({ message: "HR Email is required!" });
+    }
     const filter = { email: email };
     
     // চেক করুন ইউজার আগে থেকেই অন্য কোনো কোম্পানিতে আছে কি না
