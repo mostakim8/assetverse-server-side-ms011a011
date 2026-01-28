@@ -21,6 +21,8 @@ app.use(cors({
     optionsSuccessStatus: 200,
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+
 app.use(express.json());
 
 // MongoDB Connection
@@ -445,6 +447,80 @@ const userData = await usersCollection.findOne({ email: email });
     // যদি ইউজারের hrEmail বা companyName থাকে, তবেই সে অ্যাফিলিয়েটেড
     res.send(user); 
 });
+
+
+// join from employee side
+// Join Request API
+app.patch('/users/join-request/:email', async (req, res) => {
+    const email = req.params.email;
+    const info = req.body;
+    const filter = { email: email };
+    
+    // চেক করুন ইউজার আগে থেকেই অন্য কোনো কোম্পানিতে আছে কি না
+    const user = await usersCollection.findOne(filter);
+    if(user?.hrEmail) {
+        return res.status(400).send({ message: "You are already affiliated with a company!" });
+    }
+
+    const updateDoc = {
+        $set: {
+            hrEmail: info.hrEmail,
+            companyName: info.companyName,
+            status: 'pending' // শুরুতে পেন্ডিং থাকবে
+        }
+    };
+    const result = await usersCollection.updateOne(filter, updateDoc);
+    res.send(result);
+});
+
+// সব HR বা কোম্পানিদের লিস্ট পেতে
+app.get('/all-companies', async (req, res) => {
+    // যারা HR হিসেবে রেজিস্টার্ড এবং যাদের কোম্পানির নাম আছে তাদের খুঁজে বের করা
+    const query = { role: 'hr', companyName: { $exists: true } };
+    const result = await usersCollection.find(query).toArray();
+    res.send(result);
+});
+// নির্দিষ্ট HR এর জন্য পেন্ডিং রিকোয়েস্টগুলো দেখা
+app.get('/pending-requests/:hrEmail', async (req, res) => {
+    const hrEmail = req.params.hrEmail;
+    const query = { 
+        hrEmail: hrEmail, 
+        status: 'pending' 
+    };
+    const result = await usersCollection.find(query).toArray();
+    res.send(result);
+});
+
+app.patch('/users/approve-request/:email', async (req, res) => {
+    const email = req.params.email;
+    const { hrEmail } = req.body;
+
+    // ১. HR এর বর্তমান প্যাকেজ লিমিট এবং মেম্বার সংখ্যা বের করুন
+    const hr = await usersCollection.findOne({ email: hrEmail });
+    const currentMemberCount = await usersCollection.countDocuments({ 
+        hrEmail: hrEmail, 
+        status: 'joined' 
+    });
+
+    // ২. চেক করুন লিমিট শেষ কি না
+    if (currentMemberCount >= hr.packageLimit) {
+        return res.status(400).send({ 
+            message: "Your package limit is full! Please upgrade your package." 
+        });
+    }
+
+    // ৩. যদি লিমিট থাকে, তবে স্ট্যাটাস 'joined' করে দিন
+    const filter = { email: email };
+    const updateDoc = {
+        $set: { status: 'joined' }
+    };
+    const result = await usersCollection.updateOne(filter, updateDoc);
+    res.send(result);
+});
+
+
+
+
 
     } finally { }
 }
