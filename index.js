@@ -272,6 +272,31 @@ async function run() {
             const result = await assetsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
             res.send(result);
         });
+        
+      // Available Assets for Employees with Search and Type Filter
+        app.get('/available-assets/:hrEmail', verifyToken, async (req, res) => {
+    try {
+        const { search, type } = req.query;
+        const hrEmail = req.params.hrEmail;
+
+        let query = { hrEmail: hrEmail, productQuantity: { $gt: 0 } };
+
+        // সার্চ বক্স চেক
+        if (search && search.trim() !== "") {
+            query.productName = { $regex: search, $options: 'i' };
+        }
+
+        // টাইপ ফিল্টার চেক (আপনার ফ্রন্টএন্ডের value অনুযায়ী)
+        if (type && type !== "" && type !== "All") {
+            query.productType = type;
+        }
+
+        const result = await assetsCollection.find(query).toArray();
+        res.send(result);
+    } catch (error) {
+        res.status(500).send({ message: "Error fetching assets" });
+    }
+});
 
         //  6. Asset Requesting Process
         app.get('/my-company-assets/:email', verifyToken, async (req, res) => {
