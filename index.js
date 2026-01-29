@@ -3,12 +3,12 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); // Stripe initialized
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 
 const app = express();
 const port = process.env.PORT || 5001;
 
-// Middleware
+// --- Middleware ---
 app.use(cors({
     origin: [
       'http://localhost:5173', 
@@ -21,11 +21,9 @@ app.use(cors({
     optionsSuccessStatus: 200,
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-
-
 app.use(express.json());
 
-// MongoDB Connection
+// --- MongoDB Connection ---
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@aimodelmanagerdb.du0jjco.mongodb.net/AssetVerseDB?retryWrites=true&w=majority&appName=AIModelManagerDB`;
 
 const client = new MongoClient(uri, {
@@ -42,12 +40,11 @@ async function run() {
         const usersCollection = db.collection("users");
         const assetsCollection = db.collection("assets");
         const requestsCollection = db.collection("requests");
-        const noticesCollection = db.collection("notices"); // Added Notice Collection
+        const noticesCollection = db.collection("notices"); 
 
         console.log("Connected to AssetVerseDB Successfully!");
 
-        // --- JWT & Security Middlewares ---
-        
+        // 1. Authentication & Security (JWT) 
         app.post('/jwt', async (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
@@ -77,22 +74,23 @@ async function run() {
             next();
         };
 
-        // --- User and Team Management ---
-        
-        // app.get('/users/role/:email', async (req, res) => {
-        //     const user = await usersCollection.findOne({ email: req.params.email });
-        //     res.send({ role: user?.role || null });
-        // });
+        // 2. User Profile & Role APIs
+        app.get('/users/role/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            res.send({ role: user?.role });
+        });
 
-       app.get('/users/role/:email', async (req, res) => {
-    const email = req.params.email;
-    const query = { email: email };
-    const user = await usersCollection.findOne(query);
-    res.send({ role: user?.role });
-});
         app.get('/users/:email', verifyToken, async (req, res) => {
             const result = await usersCollection.findOne({ email: req.params.email });
             res.send(result);
+        });
+
+        app.get('/user-info/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            const user = await usersCollection.findOne({ email: email });
+            res.send(user); 
         });
 
         app.post('/users', async (req, res) => {
@@ -113,6 +111,62 @@ async function run() {
             res.send(result);
         });
 
+        // 3. Join Request & HR Approval Process
+        app.get('/all-companies', async (req, res) => {
+            const query = { role: 'hr', companyName: { $exists: true } };
+            const result = await usersCollection.find(query).toArray();
+            res.send(result);
+        });
+
+        app.patch('/users/join-request/:email', async (req, res) => {
+            const email = req.params.email;
+            const {hrEmail} = req.body;
+            if (!hrEmail) {
+                return res.status(400).send({ message: "HR Email is required!" });
+            }
+            const filter = { email: email };
+            const user = await usersCollection.findOne(filter);
+            if(user?.hrEmail || user?.status==='pending') {
+                return res.status(400).send({ message: "You are already pending request or affiliation a company!" });
+            }
+            const updateDoc = {
+                $set: { hrEmail: hrEmail, status: 'pending' }
+            };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+
+        app.get('/pending-requests/:hrEmail', async (req, res) => {
+            const hrEmail = req.params.hrEmail;
+            const query = { hrEmail: hrEmail, status: 'pending' };
+            const result = await usersCollection.find(query).toArray();
+            res.send(result);
+        });
+
+        app.patch('/users/approve-request/:email', async (req, res) => {
+            const email = req.params.email;
+            const { hrEmail } = req.body;
+            const hr = await usersCollection.findOne({ email: hrEmail });
+            const currentMemberCount = await usersCollection.countDocuments({ hrEmail: hrEmail, status: 'joined' });
+            
+            if (currentMemberCount >= hr.packageLimit) {
+                return res.status(400).send({ message: "Your package limit is full! Please upgrade your package." });
+            }
+
+            const filter = { email: email };
+            const updateDoc = {
+                $set: { 
+                    status: 'joined',
+                    companyName: hr.companyName, 
+                    companyLogo: hr.companyLogo,
+                    joinedDate: new Date().toLocaleDateString()
+                 }
+            };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+
+        // 4. Team & Employee Management (HR Side)
         app.get('/unaffiliated-employees', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.find({ role: 'employee', hrEmail: { $exists: false } }).toArray();
             res.send(result);
@@ -120,26 +174,18 @@ async function run() {
 
         app.get('/team-count/:email', verifyToken, verifyHR, async (req, res) => {
             const hrEmail = req.params.email;
-            const count = await usersCollection.countDocuments({ hrEmail:hrEmail,
-                status: 'joined'
-             });
-
-
-
-
+            const count = await usersCollection.countDocuments({ hrEmail:hrEmail, status: 'joined' });
             res.send({ count });
         });
 
         app.patch('/add-to-team', verifyToken, verifyHR, async (req, res) => {
-
             const { employeeIds, hrEmail, companyName, companyLogo } = req.body;
-            // ১. HR-এর বর্তমান লিমিট চেক করুন
-    const hr = await usersCollection.findOne({ email: hrEmail });
-    const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
+            const hr = await usersCollection.findOne({ email: hrEmail });
+            const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
 
-    if (currentTeamCount >= hr.employeeLimit) {
-        return res.status(400).send({ message: "Package limit exceeded. Please upgrade!" });
-    }
+            if (currentTeamCount >= hr.employeeLimit) {
+                return res.status(400).send({ message: "Package limit exceeded. Please upgrade!" });
+            }
             const result = await usersCollection.updateMany(
                 { _id: { $in: employeeIds.map(id => new ObjectId(id)) } },
                 { $set: { hrEmail, companyName, companyLogo, joinedDate: new Date().toLocaleDateString() } }
@@ -147,49 +193,24 @@ async function run() {
             res.send(result);
         });
 
-      app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
-    try {
-        const hrEmail = req.params.email;
-        const searchText = req.query.search || "";
+        app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
+            try {
+                const hrEmail = req.params.email;
+                const searchText = req.query.search || "";
+                let query = { hrEmail: hrEmail , status: 'joined' };
 
-        // ১. বেসিক কোয়েরি: আপনার কোম্পানি এবং জয়েন করা মেম্বার
-        let query = { 
-            hrEmail: hrEmail,
-            status: 'joined'
-        };
-
-        // ২. সার্চ লজিক ($or ব্যবহার করা হয়েছে যাতে নাম অথবা ইমেইল মিললেই হয়)
-        if (searchText) {
-            query.$or = [
-                { name: { $regex: searchText, $options: 'i' } },
-                { email: { $regex: searchText, $options: 'i' } }
-            ];
-        }
-
-        // ৩. এমপ্লয়ি লিস্ট নিয়ে আসা
-        const employees = await usersCollection.find(query).toArray();
-
-        // ৪. প্রতিটি এমপ্লয়ির জন্য অ্যাসেট কাউন্ট বের করা (Bonus Functionality)
-        const employeesWithAssets = await Promise.all(employees.map(async (emp) => {
-            // আপনার কালেকশনের নাম অনুযায়ী requestedAssetsCollection পরিবর্তন হতে পারে
-            const count = await requestedAssetsCollection.countDocuments({
-                requestEmail: emp.email, 
-                status: 'approved' // শুধুমাত্র অ্যাপ্রুভড অ্যাসেট গুনবে
-            });
-            
-            return {
-                ...emp,
-                assetCount: count || 0
-            };
-        }));
-
-        res.send(employeesWithAssets);
-
-    } catch (error) {
-        console.error("Fetch Error:", error);
-        res.status(500).send({ message: "Internal Server Error" });
-    }
-});
+                if (searchText) {
+                    query.$and = [
+                        { name: { $regex: searchText, $options: 'i' } }, 
+                        { email: { $regex: searchText, $options: 'i' } }
+                    ];
+                }
+                const result = await usersCollection.find(query).toArray();
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
 
         app.patch('/employees/remove/:id', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.updateOne(
@@ -206,41 +227,7 @@ async function run() {
             res.send(team);
         });
 
-        // --- Asset Management APIs ---
-        // employee page এ অ্যাসেট দেখানোর জন্য এপিআই
-app.get('/my-company-assets/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const { search, filter } = req.query;
-
-    // ১. প্রথমে ইউজার থেকে তার HR এর ইমেইল বের করা
-    const user = await usersCollection.findOne({ email: email });
-    if (!user || !user.hrEmail) {
-        return res.send([]);
-    }
-
-    // ২. কুয়েরি তৈরি (শুধুমাত্র সেই কোম্পানির এবং স্টকে থাকা অ্যাসেট)
-    let query = { 
-        hrEmail: user.hrEmail, 
-        productQuantity: { $gt: 0 } 
-    };
-
-    if (search) {
-        query.productName = { $regex: search, $options: 'i' };
-    }
-    if (filter) {
-        query.productType = filter;
-    }
-
-    const result = await assetsCollection.find(query).toArray();
-    res.send(result);
-});
-
-// ৩. অ্যাসেট রিকোয়েস্ট সেভ করার এপিআই (সঠিক কালেকশন নাম নিশ্চিত করুন)
-app.post('/asset-requests', verifyToken, async (req, res) => {
-    const requestData = req.body;
-    const result = await requestsCollection.insertOne(requestData);
-    res.send(result);
-});
+        //  5. Asset Management (Add, Get, Update, Delete) 
         app.post('/assets', verifyToken, verifyHR, async (req, res) => {
             const assetData = req.body;
             const result = await assetsCollection.insertOne({
@@ -286,100 +273,26 @@ app.post('/asset-requests', verifyToken, async (req, res) => {
             res.send(result);
         });
 
-        app.get('/available-assets/:hrEmail', verifyToken, async (req, res) => {
-            const { search, type } = req.query;
-            let query = { hrEmail: req.params.hrEmail, productQuantity: { $gt: 0 } };
+        //  6. Asset Requesting Process
+        app.get('/my-company-assets/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            const { search, filter } = req.query;
+            const user = await usersCollection.findOne({ email: email });
+            if (!user || !user.hrEmail) return res.send([]);
+
+            let query = { hrEmail: user.hrEmail, productQuantity: { $gt: 0 } };
             if (search) query.productName = { $regex: search, $options: 'i' };
-            if (type) query.productType = type;
+            if (filter) query.productType = filter;
+
             const result = await assetsCollection.find(query).toArray();
             res.send(result);
         });
 
-        // --- Notice APIs ---
-
-        app.post('/notices', verifyToken, verifyHR, async (req, res) => {
-            const notice = req.body;
-            const result = await noticesCollection.insertOne(notice);
+        app.post('/asset-requests', verifyToken, async (req, res) => {
+            const requestData = req.body;
+            const result = await requestsCollection.insertOne(requestData);
             res.send(result);
         });
-
-        app.get('/notices/:email', verifyToken, async (req, res) => {
-            const email = req.params.email;
-            // Get user to find their HR
-            const user = await usersCollection.findOne({ email });
-            const hrEmail = user?.role === 'hr' ? email : user?.hrEmail;
-            if (!hrEmail) return res.send([]);
-            const result = await noticesCollection.find({ hrEmail }).sort({ createdAt: -1 }).toArray();
-            res.send(result);
-        });
-
-       app.get('/team-birthdays/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const user = await usersCollection.findOne({ email });
-    
-    if (!user || !user.hrEmail) return res.send([]);
-
-    const teamMembers = await usersCollection.find({ 
-        hrEmail: user.hrEmail,
-        dob: { $exists: true } 
-    }).toArray();
-
-    const today = new Date();
-    const currentMonth = today.getMonth() + 1;
-    const currentDate = today.getDate();
-
-    const upcomingBirthdays = teamMembers.filter(member => {
-        if (!member.dob) return false;
-        const [year, month, day] = member.dob.split('-').map(Number); // dob ব্যবহার করুন
-        return month === currentMonth && day >= currentDate;
-    }).sort((a, b) => {
-        const dayA = parseInt(a.dob.split('-')[2]);
-        const dayB = parseInt(b.dob.split('-')[2]);
-        return dayA - dayB;
-    });
-
-    res.send(upcomingBirthdays);
-});
-        // --- Payment & Stripe APIs ---
-
-        // ১. পেমেন্ট ইনটেন্ট তৈরি
-app.post('/create-payment-intent', verifyToken, async (req, res) => {
-    const { price } = req.body;
-    const amount = Math.round(price * 100); 
-
-    const paymentIntent = await stripe.paymentIntents.create({
-        amount: amount,
-        currency: 'usd',
-        payment_method_types: ['card'],
-    });
-
-    res.send({ clientSecret: paymentIntent.client_secret });
-});
-
-        // backend (index.js)
-
-
-// ২. মেম্বারশিপ প্যাকেজ আপডেট
-app.patch('/upgrade-package/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const { newLimit, transactionId } = req.body;
-    
-    const query = { email: email };
-    const updateDoc = {
-        $set: { 
-            employeeLimit: parseInt(newLimit),
-            status: 'active',
-            lastTransactionId: transactionId 
-        }
-    };
-
-    const result = await usersCollection.updateOne(query, updateDoc);
-    res.send({ 
-        success: result.modifiedCount > 0 || result.matchedCount > 0, 
-        matchedCount: result.matchedCount 
-    });
-});
-        // --- Request Management APIs ---
 
         app.post('/requests', verifyToken, async (req, res) => {
             const request = req.body;
@@ -440,8 +353,65 @@ app.patch('/upgrade-package/:email', verifyToken, async (req, res) => {
             res.send(updateRequest);
         });
 
-        // --- Dashboard Stats APIs ---
-        
+        //  7. Notice & Birthdays
+        app.post('/notices', verifyToken, verifyHR, async (req, res) => {
+            const notice = req.body;
+            const result = await noticesCollection.insertOne(notice);
+            res.send(result);
+        });
+
+        app.get('/notices/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            const user = await usersCollection.findOne({ email });
+            const hrEmail = user?.role === 'hr' ? email : user?.hrEmail;
+            if (!hrEmail) return res.send([]);
+            const result = await noticesCollection.find({ hrEmail }).sort({ createdAt: -1 }).toArray();
+            res.send(result);
+        });
+
+        app.get('/team-birthdays/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            const user = await usersCollection.findOne({ email });
+            if (!user || !user.hrEmail) return res.send([]);
+            const teamMembers = await usersCollection.find({ hrEmail: user.hrEmail, dob: { $exists: true } }).toArray();
+            const today = new Date();
+            const currentMonth = today.getMonth() + 1;
+            const currentDate = today.getDate();
+            const upcomingBirthdays = teamMembers.filter(member => {
+                if (!member.dob) return false;
+                const [year, month, day] = member.dob.split('-').map(Number);
+                return month === currentMonth && day >= currentDate;
+            }).sort((a, b) => {
+                const dayA = parseInt(a.dob.split('-')[2]);
+                const dayB = parseInt(b.dob.split('-')[2]);
+                return dayA - dayB;
+            });
+            res.send(upcomingBirthdays);
+        });
+
+        // 8. Payment & Subscription Upgrade 
+        app.post('/create-payment-intent', verifyToken, async (req, res) => {
+            const { price } = req.body;
+            const amount = Math.round(price * 100); 
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card'],
+            });
+            res.send({ clientSecret: paymentIntent.client_secret });
+        });
+
+        app.patch('/upgrade-package/:email', verifyToken, async (req, res) => {
+            const email = req.params.email;
+            const { newLimit, transactionId } = req.body;
+            const updateDoc = {
+                $set: { employeeLimit: parseInt(newLimit), status: 'active', lastTransactionId: transactionId }
+            };
+            const result = await usersCollection.updateOne({ email: email }, updateDoc);
+            res.send({ success: result.modifiedCount > 0 || result.matchedCount > 0 });
+        });
+
+        // 9. Dashboard Statistics
         app.get('/hr-stats/:email', verifyToken, verifyHR, async (req, res) => {
             const email = req.params.email;
             const pendingRequests = await requestsCollection.find({ hrEmail: email, status: 'Pending' }).limit(5).toArray();
@@ -453,111 +423,14 @@ app.patch('/upgrade-package/:email', verifyToken, async (req, res) => {
 
         app.get('/employee-stats/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
-const userData = await usersCollection.findOne({ email: email });
+            const userData = await usersCollection.findOne({ email: email });
             const pendingRequests = await requestsCollection.find({ userEmail: email, status: 'Pending' }).toArray();
-
             const allRequests = await requestsCollection.find({ userEmail: email }).toArray();
-
             const currentMonth = new Date().getMonth();
-
             const monthlyCount = allRequests.filter(r => new Date(r.requestDate).getMonth() === currentMonth).length;
-
             const monthlyAssets = allRequests.filter(r => r.status === 'Approved');
-            res.send({ userData,pendingRequests, monthlyCount, monthlyAssets});
+            res.send({ userData, pendingRequests, monthlyCount, monthlyAssets});
         });
-
-        app.get('/user-info/:email', verifyToken, async (req, res) => {
-    const email = req.params.email;
-    const user = await usersCollection.findOne({ email: email });
-    // যদি ইউজারের hrEmail বা companyName থাকে, তবেই সে অ্যাফিলিয়েটেড
-    res.send(user); 
-});
-
-
-// join from employee side
-// Join Request API
-app.patch('/users/join-request/:email', async (req, res) => {
-    const email = req.params.email;
-    const {hrEmail} = req.body;
-
-    if (!hrEmail) {
-        return res.status(400).send({ message: "HR Email is required!" });
-    }
-    const filter = { email: email };
-    
-    // চেক করুন ইউজার আগে থেকেই অন্য কোনো কোম্পানিতে আছে কি না
-    const user = await usersCollection.findOne(filter);
-
-
-    if(user?.hrEmail || user?.status==='pending') {
-        return res.status(400).send({ message: "You are already pending request or affiliation a company!" });
-    }
-
-    const updateDoc = {
-        $set: {
-            hrEmail: hrEmail,
-            status: 'pending' // শুরুতে পেন্ডিং থাকবে
-        }
-    };
-    const result = await usersCollection.updateOne(filter, updateDoc);
-    res.send(result);
-});
-
-// সব HR বা কোম্পানিদের লিস্ট পেতে
-app.get('/all-companies', async (req, res) => {
-    // যারা HR হিসেবে রেজিস্টার্ড এবং যাদের কোম্পানির নাম আছে তাদের খুঁজে বের করা
-    const query = { role: 'hr', companyName: { $exists: true } };
-    const result = await usersCollection.find(query).toArray();
-    res.send(result);
-});
-// নির্দিষ্ট HR এর জন্য পেন্ডিং রিকোয়েস্টগুলো দেখা
-app.get('/pending-requests/:hrEmail', async (req, res) => {
-    const hrEmail = req.params.hrEmail;
-    const query = { 
-        hrEmail: hrEmail, 
-        status: 'pending' 
-    };
-    const result = await usersCollection.find(query).toArray();
-    res.send(result);
-});
-
-app.patch('/users/approve-request/:email', async (req, res) => {
-    const email = req.params.email;
-    const { hrEmail } = req.body;
-
-    // ১. HR এর বর্তমান প্যাকেজ লিমিট এবং মেম্বার সংখ্যা বের করুন
-    const hr = await usersCollection.findOne({ email: hrEmail });
-
-    
-    const currentMemberCount = await usersCollection.countDocuments({ 
-        hrEmail: hrEmail, 
-        status: 'joined' 
-    });
-
-    // ২. চেক করুন লিমিট শেষ কি না
-    if (currentMemberCount >= hr.packageLimit) {
-        return res.status(400).send({ 
-            message: "Your package limit is full! Please upgrade your package." 
-        });
-    }
-
-    // ৩. যদি লিমিট থাকে, তবে স্ট্যাটাস 'joined' করে দিন
-    const filter = { email: email };
-    const updateDoc = {
-        $set: { 
-            status: 'joined',
-            companyName: hr.companyName, // HR এর কোম্পানি নাম এখানে সেট হচ্ছে
-            companyLogo: hr.companyLogo,
-            joinedDate: new Date().toLocaleDateString()
-         }
-    };
-    const result = await usersCollection.updateOne(filter, updateDoc);
-    res.send(result);
-});
-
-
-
-
 
     } finally { }
 }
