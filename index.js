@@ -160,7 +160,7 @@ async function run() {
 
         // যদি সার্চ বক্সে কিছু লেখা থাকে, তবেই ফিল্টার যোগ হবে
         if (searchText) {
-            query.$or = [
+            query.$and = [
                 { name: { $regex: searchText, $options: 'i' } }, // i মানে Case-Insensitive (বড়/ছোট হাতের অক্ষর ম্যাটার করবে না)
                 { email: { $regex: searchText, $options: 'i' } }
             ];
