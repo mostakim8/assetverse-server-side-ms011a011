@@ -119,7 +119,14 @@ async function run() {
         });
 
         app.get('/team-count/:email', verifyToken, verifyHR, async (req, res) => {
-            const count = await usersCollection.countDocuments({ hrEmail: req.params.email });
+            const hrEmail = req.params.email;
+            const count = await usersCollection.countDocuments({ hrEmail:hrEmail,
+                status: 'joined'
+             });
+
+
+
+
             res.send({ count });
         });
 
@@ -147,7 +154,8 @@ async function run() {
 
         // কোয়েরি অবজেক্ট তৈরি
         const query = { 
-            hrEmail: hrEmail 
+            hrEmail: hrEmail ,
+            status: 'joined',
         };
 
         // যদি সার্চ বক্সে কিছু লেখা থাকে, তবেই ফিল্টার যোগ হবে
