@@ -211,23 +211,38 @@ async function run() {
 
 // Get My Employees with Search Functionality
         app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
-            try {
-                const hrEmail = req.params.email;
-                const searchText = req.query.search || "";
-                let query = { hrEmail: hrEmail , status: 'joined' };
+    try {
+        const hrEmail = req.params.email;
+        const searchText = req.query.search || "";
+        
+        // ১. শুরুতে ঐ HR এর আন্ডারে থাকা এমপ্লয়িদের ফিল্টার তৈরি
+        let query = { hrEmail: hrEmail, status: 'joined' };
 
-                if (searchText) {
-                    query.$and = [
-                        { name: { $regex: searchText, $options: 'i' } }, 
-                        { email: { $regex: searchText, $options: 'i' } }
-                    ];
-                }
-                const result = await usersCollection.find(query).toArray();
-                res.send(result);
-            } catch (error) {
-                res.status(500).send({ message: "Internal Server Error" });
-            }
-        });
+        // ২. সার্চ থাকলে নাম অথবা ইমেইল যেকোনো একটি মিললেই হবে ($or ব্যবহার করুন)
+        if (searchText) {
+            query.$or = [
+                { name: { $regex: searchText, $options: 'i' } }, 
+                { email: { $regex: searchText, $options: 'i' } }
+            ];
+        }
+
+        const employees = await usersCollection.find(query).toArray();
+
+        // ৩. প্রতিটা এমপ্লয়ির জন্য আলাদাভাবে অ্যাপ্রুভড অ্যাসেট সংখ্যা বের করা
+        const employeesWithAssetCount = await Promise.all(employees.map(async (emp) => {
+            const assetCount = await requestsCollection.countDocuments({
+                userEmail: emp.email.toLowerCase(),
+                status: 'Approved' // শুধু যেগুলো HR অ্যাপ্রুভ করেছে সেগুলো গুনবে
+            });
+            return { ...emp, assetCount }; // এমপ্লয়ি ডাটার সাথে assetCount যোগ করে দিচ্ছি
+        }));
+
+        res.send(employeesWithAssetCount);
+    } catch (error) {
+        console.error("My Employee Fetch Error:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+    }
+});
 
         app.patch('/employees/remove/:id', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.updateOne(
