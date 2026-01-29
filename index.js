@@ -147,29 +147,46 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
+      app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
     try {
         const hrEmail = req.params.email;
-        const searchText = req.query.search || ""; // ফ্রন্টএন্ড থেকে আসা সার্চ প্যারামিটার
+        const searchText = req.query.search || "";
 
-        // কোয়েরি অবজেক্ট তৈরি
+        // ১. বেসিক কোয়েরি: আপনার কোম্পানি এবং জয়েন করা মেম্বার
         let query = { 
-            hrEmail: hrEmail ,
-            status: 'joined',
+            hrEmail: hrEmail,
+            status: 'joined'
         };
 
-        // যদি সার্চ বক্সে কিছু লেখা থাকে, তবেই ফিল্টার যোগ হবে
+        // ২. সার্চ লজিক ($or ব্যবহার করা হয়েছে যাতে নাম অথবা ইমেইল মিললেই হয়)
         if (searchText) {
-            query.$and = [
-                { name: { $regex: searchText, $options: 'i' } }, // i মানে Case-Insensitive (বড়/ছোট হাতের অক্ষর ম্যাটার করবে না)
+            query.$or = [
+                { name: { $regex: searchText, $options: 'i' } },
                 { email: { $regex: searchText, $options: 'i' } }
             ];
         }
 
-        const result = await usersCollection.find(query).toArray();
-        res.send(result);
+        // ৩. এমপ্লয়ি লিস্ট নিয়ে আসা
+        const employees = await usersCollection.find(query).toArray();
+
+        // ৪. প্রতিটি এমপ্লয়ির জন্য অ্যাসেট কাউন্ট বের করা (Bonus Functionality)
+        const employeesWithAssets = await Promise.all(employees.map(async (emp) => {
+            // আপনার কালেকশনের নাম অনুযায়ী requestedAssetsCollection পরিবর্তন হতে পারে
+            const count = await requestedAssetsCollection.countDocuments({
+                requestEmail: emp.email, 
+                status: 'approved' // শুধুমাত্র অ্যাপ্রুভড অ্যাসেট গুনবে
+            });
+            
+            return {
+                ...emp,
+                assetCount: count || 0
+            };
+        }));
+
+        res.send(employeesWithAssets);
+
     } catch (error) {
-        console.error("Search Error:", error);
+        console.error("Fetch Error:", error);
         res.status(500).send({ message: "Internal Server Error" });
     }
 });
