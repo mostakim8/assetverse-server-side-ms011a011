@@ -177,22 +177,39 @@ async function run() {
             const count = await usersCollection.countDocuments({ hrEmail:hrEmail, status: 'joined' });
             res.send({ count });
         });
-
+        // Bulk Add Employees to Team with Limit Check
         app.patch('/add-to-team', verifyToken, verifyHR, async (req, res) => {
-            const { employeeIds, hrEmail, companyName, companyLogo } = req.body;
-            const hr = await usersCollection.findOne({ email: hrEmail });
-            const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
+         try {
+        const { employeeIds, hrEmail, companyName, companyLogo } = req.body;
+        const hr = await usersCollection.findOne({ email: hrEmail });
+        const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
 
-            if (currentTeamCount >= hr.employeeLimit) {
-                return res.status(400).send({ message: "Package limit exceeded. Please upgrade!" });
+        
+        if (currentTeamCount + employeeIds.length > hr.employeeLimit) {
+            return res.status(400).send({ 
+                message: `Limit exceeded! You can only add ${hr.employeeLimit - currentTeamCount} more members.` 
+            });
+        }
+
+        const result = await usersCollection.updateMany(
+            { _id: { $in: employeeIds.map(id => new ObjectId(id)) } },
+            { 
+                $set: { 
+                    hrEmail, 
+                    companyName, 
+                    companyLogo, 
+                    status: 'joined', 
+                    joinedDate: new Date().toLocaleDateString() 
+                } 
             }
-            const result = await usersCollection.updateMany(
-                { _id: { $in: employeeIds.map(id => new ObjectId(id)) } },
-                { $set: { hrEmail, companyName, companyLogo, joinedDate: new Date().toLocaleDateString() } }
-            );
-            res.send(result);
-        });
+        );
+        res.send(result);
+    } catch (error) {
+        res.status(500).send({ message: "Internal Server Error" });
+    }
+});
 
+// Get My Employees with Search Functionality
         app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
             try {
                 const hrEmail = req.params.email;
