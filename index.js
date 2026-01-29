@@ -272,10 +272,10 @@ async function run() {
             const result = await assetsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
             res.send(result);
         });
-        
-      // Available Assets for Employees with Search and Type Filter
+
+         // Available Assets for Employees with Search and Type Filter
         app.get('/available-assets/:hrEmail', verifyToken, async (req, res) => {
-    try {
+        try {
         const { search, type } = req.query;
         const hrEmail = req.params.hrEmail;
 
@@ -339,17 +339,30 @@ async function run() {
         });
 
         app.patch('/requests/:id', verifyToken, verifyHR, async (req, res) => {
-            const { status, assetId } = req.body;
-            const id = req.params.id;
-            const result = await requestsCollection.updateOne(
-                { _id: new ObjectId(id) },
-                { $set: { status, approvalDate: new Date().toLocaleDateString() } }
+    try {
+        const { status, assetId } = req.body; // status: 'Approved' অথবা 'Rejected'
+        const id = req.params.id;
+
+        // স্ট্যাটাস যাই হোক, প্রথমে রিকোয়েস্টটি আপডেট করুন
+        const result = await requestsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status, approvalDate: new Date().toLocaleDateString() } }
+        );
+
+        // শুধুমাত্র 'Approved' হলে অ্যাসেট কোয়ান্টিটি ১ কমান
+        if (status === 'Approved' && result.modifiedCount > 0) {
+            await assetsCollection.updateOne(
+                { _id: new ObjectId(assetId) },
+                { $inc: { productQuantity: -1 } }
             );
-            if (status === 'Approved') {
-                await assetsCollection.updateOne({ _id: new ObjectId(assetId) }, { $inc: { productQuantity: -1 } });
-            }
-            res.send(result);
-        });
+        }
+
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal Server Error" });
+    }
+});
 
         app.get('/my-requests/:email', verifyToken, async (req, res) => {
             const { search, status, type } = req.query;
