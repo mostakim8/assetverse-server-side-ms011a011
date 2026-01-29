@@ -153,7 +153,7 @@ async function run() {
         const searchText = req.query.search || ""; // ফ্রন্টএন্ড থেকে আসা সার্চ প্যারামিটার
 
         // কোয়েরি অবজেক্ট তৈরি
-        const query = { 
+        let query = { 
             hrEmail: hrEmail ,
             status: 'joined',
         };
