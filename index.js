@@ -418,33 +418,36 @@ async function run() {
             res.send(result);
         });
 
-        // এমপ্লয়ী যেসব কোম্পানিতে রিকোয়েস্ট করেছে বা যুক্ত আছে তাদের লিস্ট বের করা
         app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
           try {
             const email = req.params.email.toLowerCase();
-        
-        // requestsCollection থেকে ওই ইউজারের সব রিকোয়েস্ট খুঁজে বের করা
-            const approvedRequests = await requestsCollection.find({ 
-            userEmail: email 
-        }).toArray();
 
-        // ইউনিক কোম্পানি ইমেইল এবং নামগুলো ফিল্টার করা
-            const companiesMap = {};
-        approvedRequests.forEach(item => {
-               if (item.hrEmail && !companiesMap[item.hrEmail]) {
-                companiesMap[item.hrEmail] = { 
-                    hrEmail: item.hrEmail, 
-                    companyName: item.companyName || "Unknown Company"
-                };
-            }
-        });
+            const hrEmails = await requestsCollection.distinct("hrEmail", { userEmail: email });
 
-            const companies = Object.values(companiesMap);
-        res.send(companies);
+           if (!hrEmails || hrEmails.length === 0) {
+            return res.send([]);
+        }
+
+           const companies = await usersCollection.find(
+            { email: { $in: hrEmails } },
+            { projection: { email: 1, 
+                            companyName: 1, 
+                            companyLogo: 1, 
+                            _id: 0 } }
+        ).toArray();
+
+           const formattedCompanies = companies.map(company => ({
+                                                                 hrEmail: company.email,
+                                                                 companyName: company.companyName || "Unknown Company",
+                                                                 companyLogo: company.companyLogo
+        }));
+
+        res.send(formattedCompanies);
     } catch (error) {
+        console.error("Error:", error);
         res.status(500).send({ message: "Error fetching company list" });
     }
-    });
+});
         //   Asset Requesting Process
         app.post('/asset-requests', verifyToken, async (req, res) => {
             const requestData = req.body;
