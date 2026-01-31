@@ -74,7 +74,7 @@ async function run() {
             next();
         };
 
-        // 2. User Profile & Role APIs
+        //  User Profile & Role APIs
         app.get('/users/role/:email', async (req, res) => {
             const email = req.params.email;
             const query = { email: email };
@@ -111,7 +111,7 @@ async function run() {
             res.send(result);
         });
 
-        // 3. Join Request & HR Approval Process
+        // Join Request & HR Approval Process
         app.get('/all-companies', async (req, res) => {
             const query = { role: 'hr', companyName: { $exists: true } };
             const result = await usersCollection.find(query).toArray();
@@ -166,7 +166,7 @@ async function run() {
             res.send(result);
         });
 
-        // 4. Team & Employee Management (HR Side)
+        // Team & Employee Management (HR Side)
         app.get('/unaffiliated-employees', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.find({ role: 'employee', hrEmail: { $exists: false } }).toArray();
             res.send(result);
@@ -204,21 +204,21 @@ async function run() {
             }
         );
         res.send(result);
-    } catch (error) {
+        } catch (error) {
         res.status(500).send({ message: "Internal Server Error" });
-    }
+       }
 });
 
-// Get My Employees with Search Functionality
+         // Get My Employees with Search Functionality
         app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
-    try {
+        try {
         const hrEmail = req.params.email;
         const searchText = req.query.search || "";
         
-        // ১. শুরুতে ঐ HR এর আন্ডারে থাকা এমপ্লয়িদের ফিল্টার তৈরি
+        
         let query = { hrEmail: hrEmail, status: 'joined' };
 
-        // ২. সার্চ থাকলে নাম অথবা ইমেইল যেকোনো একটি মিললেই হবে ($or ব্যবহার করুন)
+    
         if (searchText) {
             query.$or = [
                 { name: { $regex: searchText, $options: 'i' } }, 
@@ -228,13 +228,12 @@ async function run() {
 
         const employees = await usersCollection.find(query).toArray();
 
-        // ৩. প্রতিটা এমপ্লয়ির জন্য আলাদাভাবে অ্যাপ্রুভড অ্যাসেট সংখ্যা বের করা
         const employeesWithAssetCount = await Promise.all(employees.map(async (emp) => {
             const assetCount = await requestsCollection.countDocuments({
                 userEmail: emp.email.toLowerCase(),
-                status: 'Approved' // শুধু যেগুলো HR অ্যাপ্রুভ করেছে সেগুলো গুনবে
+                status: 'Approved' 
             });
-            return { ...emp, assetCount }; // এমপ্লয়ি ডাটার সাথে assetCount যোগ করে দিচ্ছি
+            return { ...emp, assetCount }; 
         }));
 
         res.send(employeesWithAssetCount);
@@ -259,8 +258,8 @@ async function run() {
             res.send(team);
         });
 
-        //  5. Asset Management (Add, Get, Update, Delete) 
-        app.post('/assets', verifyToken, verifyHR, async (req, res) => {
+        //  Asset Management (Add, Get, Update, Delete) 
+         app.post('/assets', verifyToken, verifyHR, async (req, res) => {
             const assetData = req.body;
             const result = await assetsCollection.insertOne({
                 ...assetData,
@@ -313,24 +312,69 @@ async function run() {
 
         let query = { hrEmail: hrEmail, productQuantity: { $gt: 0 } };
 
-        // সার্চ বক্স চেক
+        // check search filter
         if (search && search.trim() !== "") {
             query.productName = { $regex: search, $options: 'i' };
         }
 
-        // টাইপ ফিল্টার চেক (আপনার ফ্রন্টএন্ডের value অনুযায়ী)
+        
         if (type && type !== "" && type !== "All") {
             query.productType = type;
         }
 
         const result = await assetsCollection.find(query).toArray();
         res.send(result);
-    } catch (error) {
+        } catch (error) {
         res.status(500).send({ message: "Error fetching assets" });
     }
 });
+      // see all company assets (for employee side)
+        app.get('/all-assets', verifyToken, async (req, res) => {
+            const { search, type } = req.query;
+            let query = { productQuantity: { $gt: 0 } };
 
-        //  6. Asset Requesting Process
+            if (search && search.trim() !== "") {
+                query.productName = { $regex: search, $options: 'i' };
+            }
+            if (type && type !== "" && type !== "All") {
+                query.productType = type;
+            }
+
+            const result = await assetsCollection.find(query).toArray();
+            res.send(result);
+        });
+
+        // see all HR companies (for employee side)
+        app.get('/hr-companies', verifyToken, async (req, res) => {
+            const query = { role: 'hr', companyName: { $exists: true } };
+            const result = await usersCollection.find(query, {
+                projection: { name: 1, email: 1, companyName: 1, companyLogo: 1 }
+            }).toArray();
+            res.send(result);
+        });
+
+        // Join Company Request by Employee
+        app.post('/join-requests', verifyToken, async (req, res) => {
+            const joinData = req.body;
+            const user = await usersCollection.findOne({ email: joinData.userEmail });
+            
+            if (user?.hrEmail || user?.status === 'pending') {
+                return res.status(400).send({ message: "Already affiliated or pending!" });
+            }
+
+            const filter = { email: joinData.userEmail };
+            const updateDoc = {
+                $set: { 
+                    hrEmail: joinData.hrEmail, 
+                    status: 'pending',
+                    requestDate: joinData.requestDate 
+                }
+            };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+
+        //   Asset Requesting Process
         app.get('/my-company-assets/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const { search, filter } = req.query;
@@ -353,6 +397,17 @@ async function run() {
 
         app.post('/requests', verifyToken, async (req, res) => {
             const request = req.body;
+            // if employee click different company assets request for join company
+            if (request.type==="JoinRequest"){
+                const filter={email:request.userEmail};
+                const updateDoc={
+                    $set:{hrEmail:request.hrEmail,
+                        status:'pending'
+                    }
+                }
+                await usersCollection.updateOne(filter, updateDoc);
+            }
+            //save main assets request
             const result = await requestsCollection.insertOne(request);
             res.send(result);
         });
@@ -372,16 +427,14 @@ async function run() {
 
         app.patch('/requests/:id', verifyToken, verifyHR, async (req, res) => {
     try {
-        const { status, assetId } = req.body; // status: 'Approved' অথবা 'Rejected'
+        const { status, assetId } = req.body; // status: 'Approved' or 'Rejected'
         const id = req.params.id;
 
-        // স্ট্যাটাস যাই হোক, প্রথমে রিকোয়েস্টটি আপডেট করুন
         const result = await requestsCollection.updateOne(
             { _id: new ObjectId(id) },
             { $set: { status, approvalDate: new Date().toLocaleDateString() } }
         );
 
-        // শুধুমাত্র 'Approved' হলে অ্যাসেট কোয়ান্টিটি ১ কমান
         if (status === 'Approved' && result.modifiedCount > 0) {
             await assetsCollection.updateOne(
                 { _id: new ObjectId(assetId) },
@@ -390,10 +443,10 @@ async function run() {
         }
 
         res.send(result);
-    } catch (error) {
+        } catch (error) {
         console.error(error);
         res.status(500).send({ message: "Internal Server Error" });
-    }
+       }
 });
 
         app.get('/my-requests/:email', verifyToken, async (req, res) => {
@@ -423,7 +476,7 @@ async function run() {
             res.send(updateRequest);
         });
 
-        //  7. Notice & Birthdays
+        //  Notice & Birthdays
         app.post('/notices', verifyToken, verifyHR, async (req, res) => {
             const notice = req.body;
             const result = await noticesCollection.insertOne(notice);
@@ -459,7 +512,7 @@ async function run() {
             res.send(upcomingBirthdays);
         });
 
-        // 8. Payment & Subscription Upgrade 
+        //  Payment & Subscription Upgrade 
         app.post('/create-payment-intent', verifyToken, async (req, res) => {
             const { price } = req.body;
             const amount = Math.round(price * 100); 
@@ -481,7 +534,7 @@ async function run() {
             res.send({ success: result.modifiedCount > 0 || result.matchedCount > 0 });
         });
 
-        // 9. Dashboard Statistics
+        // Dashboard Statistics
         app.get('/hr-stats/:email', verifyToken, verifyHR, async (req, res) => {
             const email = req.params.email;
             const pendingRequests = await requestsCollection.find({ hrEmail: email, status: 'Pending' }).limit(5).toArray();
