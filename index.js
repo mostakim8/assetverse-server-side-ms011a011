@@ -8,7 +8,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5001;
 
-// --- Middleware ---
+        // Middleware 
 app.use(cors({
     origin: [
       'http://localhost:5173', 
@@ -50,29 +50,29 @@ async function run() {
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
             res.send({ token });
         });
-
-        const verifyToken = (req, res, next) => {
-            if (!req.headers.authorization) {
+            // verify with token
+            const verifyToken = (req, res, next) => {
+              if (!req.headers.authorization) {
                 return res.status(401).send({ message: 'unauthorized access' });
-            }
+              }
             const token = req.headers.authorization.split(' ')[1];
             jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-                if (err) {
+              if (err) {
                     return res.status(401).send({ message: 'unauthorized access' });
-                }
+               }
                 req.decoded = decoded;
                 next();
             });
-        };
-
-        const verifyHR = async (req, res, next) => {
+            };
+            // verify with HR
+            const verifyHR = async (req, res, next) => {
             const email = req.decoded.email;
             const user = await usersCollection.findOne({ email });
-            if (user?.role !== 'hr') {
+              if (user?.role !== 'hr') {
                 return res.status(403).send({ message: 'forbidden access' });
-            }
+              }
             next();
-        };
+            };
 
         //  User Profile & Role APIs
         app.get('/users/role/:email', async (req, res) => {
@@ -96,9 +96,9 @@ async function run() {
         app.post('/users', async (req, res) => {
             const user = req.body;
             const existingUser = await usersCollection.findOne({ email: user.email });
-            if (existingUser) return res.send({ message: 'user exists', insertedId: null });
-            const result = await usersCollection.insertOne(user);
-            res.send(result);
+              if (existingUser) return res.send({ message: 'user exists', insertedId: null });
+                 const result = await usersCollection.insertOne(user);
+                 res.send(result);
         });
 
         app.patch('/users/update/:email', verifyToken, async (req, res) => {
@@ -121,14 +121,14 @@ async function run() {
         app.patch('/users/join-request/:email', async (req, res) => {
             const email = req.params.email;
             const {hrEmail} = req.body;
-            if (!hrEmail) {
+              if (!hrEmail) {
                 return res.status(400).send({ message: "HR Email is required!" });
-            }
+              }
             const filter = { email: email };
             const user = await usersCollection.findOne(filter);
-            if(user?.hrEmail || user?.status==='pending') {
+              if(user?.hrEmail || user?.status==='pending') {
                 return res.status(400).send({ message: "You are already pending request or affiliation a company!" });
-            }
+              }
             const updateDoc = {
                 $set: { hrEmail: hrEmail, status: 'pending' }
             };
@@ -138,7 +138,9 @@ async function run() {
 
         app.get('/pending-requests/:hrEmail', async (req, res) => {
             const hrEmail = req.params.hrEmail;
-            const query = { hrEmail: hrEmail, status: 'pending' };
+            const query = { hrEmail: hrEmail, 
+                            status: 'pending' 
+                          };
             const result = await usersCollection.find(query).toArray();
             res.send(result);
         });
@@ -147,7 +149,8 @@ async function run() {
             const email = req.params.email;
             const { hrEmail } = req.body;
             const hr = await usersCollection.findOne({ email: hrEmail });
-            const currentMemberCount = await usersCollection.countDocuments({ hrEmail: hrEmail, status: 'joined' });
+            const currentMemberCount = await usersCollection.countDocuments({ hrEmail: hrEmail, 
+                                                                              status: 'joined' });
             
             if (currentMemberCount >= hr.packageLimit) {
                 return res.status(400).send({ message: "Your package limit is full! Please upgrade your package." });
@@ -168,30 +171,33 @@ async function run() {
 
         // Team & Employee Management (HR Side)
         app.get('/unaffiliated-employees', verifyToken, verifyHR, async (req, res) => {
-            const result = await usersCollection.find({ role: 'employee', hrEmail: { $exists: false } }).toArray();
+            const result = await usersCollection.find({ role: 'employee', 
+                                                        hrEmail: { $exists: false } 
+                                                      }).toArray();
             res.send(result);
         });
 
         app.get('/team-count/:email', verifyToken, verifyHR, async (req, res) => {
             const hrEmail = req.params.email;
-            const count = await usersCollection.countDocuments({ hrEmail:hrEmail, status: 'joined' });
+            const count = await usersCollection.countDocuments({ hrEmail:hrEmail, 
+                                                                 status: 'joined' 
+                                                                });
             res.send({ count });
         });
         // Bulk Add Employees to Team with Limit Check
         app.patch('/add-to-team', verifyToken, verifyHR, async (req, res) => {
-         try {
-        const { employeeIds, hrEmail, companyName, companyLogo } = req.body;
-        const hr = await usersCollection.findOne({ email: hrEmail });
-        const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
-
+          try {
+            const { employeeIds, hrEmail, companyName, companyLogo } = req.body;
+            const hr = await usersCollection.findOne({ email: hrEmail });
+            const currentTeamCount = await usersCollection.countDocuments({ hrEmail: hrEmail });
         
-        if (currentTeamCount + employeeIds.length > hr.employeeLimit) {
-            return res.status(400).send({ 
-                message: `Limit exceeded! You can only add ${hr.employeeLimit - currentTeamCount} more members.` 
+              if (currentTeamCount + employeeIds.length > hr.employeeLimit) {
+                  return res.status(400).send({ 
+                    message: `Limit exceeded! You can only add ${hr.employeeLimit - currentTeamCount} more members.` 
             });
-        }
+            }
 
-        const result = await usersCollection.updateMany(
+            const result = await usersCollection.updateMany(
             { _id: { $in: employeeIds.map(id => new ObjectId(id)) } },
             { 
                 $set: { 
@@ -202,58 +208,63 @@ async function run() {
                     joinedDate: new Date().toLocaleDateString() 
                 } 
             }
-        );
-        res.send(result);
-        } catch (error) {
-        res.status(500).send({ message: "Internal Server Error" });
-       }
-});
+            );
+            res.send(result);
+          } 
+            catch (error) {
+            res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
 
          // Get My Employees with Search Functionality
         app.get('/my-employees/:email', verifyToken, verifyHR, async (req, res) => {
-        try {
-        const hrEmail = req.params.email;
-        const searchText = req.query.search || "";
-        
-        
-        let query = { hrEmail: hrEmail, status: 'joined' };
+          try {
+           const hrEmail = req.params.email;
+           const searchText = req.query.search || "";
+              
+           let query = { hrEmail: hrEmail, status: 'joined' };
 
-    
-        if (searchText) {
-            query.$or = [
+             if (searchText) {
+                query.$or = [
                 { name: { $regex: searchText, $options: 'i' } }, 
                 { email: { $regex: searchText, $options: 'i' } }
             ];
-        }
+            }
 
-        const employees = await usersCollection.find(query).toArray();
+            const employees = await usersCollection.find(query).toArray();
 
-        const employeesWithAssetCount = await Promise.all(employees.map(async (emp) => {
+            const employeesWithAssetCount = await Promise.all(employees.map(async (emp) => {
             const assetCount = await requestsCollection.countDocuments({
                 userEmail: emp.email.toLowerCase(),
                 status: 'Approved' 
             });
             return { ...emp, assetCount }; 
-        }));
+            }));
 
-        res.send(employeesWithAssetCount);
-    } catch (error) {
-        console.error("My Employee Fetch Error:", error);
-        res.status(500).send({ message: "Internal Server Error" });
-    }
-});
+            res.send(employeesWithAssetCount);
+           } catch (error) {
+             console.error("My Employee Fetch Error:", error);
+             res.status(500).send({ message: "Internal Server Error" });
+             }
+        });
 
         app.patch('/employees/remove/:id', verifyToken, verifyHR, async (req, res) => {
             const result = await usersCollection.updateOne(
                 { _id: new ObjectId(req.params.id) },
-                { $unset: { hrEmail: "", companyName: "", companyLogo: "", joinedDate: "" } }
+                { $unset: { hrEmail: "", 
+                            companyName: "", 
+                            companyLogo: "", 
+                            joinedDate: "" 
+                           } 
+                }
             );
             res.send(result);
         });
 
         app.get('/my-team/:email', verifyToken, async (req, res) => {
             const user = await usersCollection.findOne({ email: req.params.email });
-            if (!user || !user.hrEmail) return res.send([]);
+              if (!user || !user.hrEmail) 
+                 return res.send([]);
             const team = await usersCollection.find({ hrEmail: user.hrEmail }).toArray();
             res.send(team);
         });
@@ -270,25 +281,25 @@ async function run() {
         });
 
         app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
-            try {
-                const { search, filter, sort, page, limit } = req.query;
-                const email = req.params.email;
-                let query = { hrEmail: email };
-                if (search) query.productName = { $regex: search, $options: 'i' };
-                if (filter) query.productType = filter;
-                let sortOption = {};
-                if (sort === 'quantity') sortOption.productQuantity = -1;
+          try {
+            const { search, filter, sort, page, limit } = req.query;
+            const email = req.params.email;
+            let query = { hrEmail: email };
+              if (search) query.productName = { $regex: search, $options: 'i' };
+              if (filter) query.productType = filter;
+            let sortOption = {};
+              if (sort === 'quantity') sortOption.productQuantity = -1;
 
-                const pageNumber = parseInt(page) || 1;
-                const limitNumber = parseInt(limit) || 10;
-                const skip = (pageNumber - 1) * limitNumber;
+            const pageNumber = parseInt(page) || 1;
+            const limitNumber = parseInt(limit) || 10;
+            const skip = (pageNumber - 1) * limitNumber;
 
-                const result = await assetsCollection.find(query).sort(sortOption).skip(skip).limit(limitNumber).toArray();
-                const totalCount = await assetsCollection.countDocuments(query);
-                res.send({ result, totalCount });
-            } catch (error) {
+            const result = await assetsCollection.find(query).sort(sortOption).skip(skip).limit(limitNumber).toArray();
+            const totalCount = await assetsCollection.countDocuments(query);
+            res.send({ result, totalCount });
+          } catch (error) {
                 res.status(500).send({ message: "Internal Server Error" });
-            }
+              }
         });
 
         app.put('/assets/:id', verifyToken, verifyHR, async (req, res) => {
@@ -306,49 +317,68 @@ async function run() {
 
          // Available Assets for Employees with Search and Type Filter
         app.get('/available-assets/:hrEmail', verifyToken, async (req, res) => {
-        try {
-        const { search, type } = req.query;
-        const hrEmail = req.params.hrEmail;
+          try {
+            const { search, type } = req.query;
+            const hrEmail = req.params.hrEmail;
 
-        let query = { hrEmail: hrEmail, productQuantity: { $gt: 0 } };
+            let query = { hrEmail: hrEmail, productQuantity: { $gt: 0 } };
 
         // check search filter
-        if (search && search.trim() !== "") {
-            query.productName = { $regex: search, $options: 'i' };
-        }
+              if (search && search.trim() !== "") {
+                 query.productName = { $regex: search, $options: 'i' };
+              }
 
-        
-        if (type && type !== "" && type !== "All") {
-            query.productType = type;
-        }
-
-        const result = await assetsCollection.find(query).toArray();
-        res.send(result);
-        } catch (error) {
-        res.status(500).send({ message: "Error fetching assets" });
-    }
-});
-      // see all company assets (for employee side)
-        app.get('/all-assets', verifyToken, async (req, res) => {
-            const { search, type } = req.query;
-            let query = { productQuantity: { $gt: 0 } };
-
-            if (search && search.trim() !== "") {
-                query.productName = { $regex: search, $options: 'i' };
-            }
-            if (type && type !== "" && type !== "All") {
-                query.productType = type;
+              if (type && type !== "" && type !== "All") {
+                 query.productType = type;
             }
 
             const result = await assetsCollection.find(query).toArray();
             res.send(result);
+          } 
+            catch (error) {
+            res.status(500).send({ message: "Error fetching assets" });
+            }
         });
+
+        // see all company assets (for employee side)
+        app.get('/all-assets', verifyToken, async (req, res) => {
+          try {
+            const { search, type, page = 1, limit = 10 } = req.query;
+            const skip = (parseInt(page) - 1) * parseInt(limit);
+            const limitSize = parseInt(limit);
+
+            let query = { productQuantity: { $gt: 0 } };
+
+             if (search && search.trim() !== "") {
+                query.productName = { $regex: search, $options: 'i' };
+              }
+             if (type && type !== "" && type !== "All") {
+                query.productType = type;
+             }
+            const totalCount = await assetsCollection.countDocuments(query);
+            const result = await assetsCollection.find(query)
+            .skip(skip)
+            .limit(limitSize)
+            .toArray();
+
+        res.send({ 
+            result, 
+            totalCount 
+        });
+        } catch (error) {
+        res.status(500).send({ message: "Internal Server Error" });
+        }
+});
 
         // see all HR companies (for employee side)
         app.get('/hr-companies', verifyToken, async (req, res) => {
-            const query = { role: 'hr', companyName: { $exists: true } };
+            const query = { role: 'hr', 
+                            companyName: { $exists: true } };
             const result = await usersCollection.find(query, {
-                projection: { name: 1, email: 1, companyName: 1, companyLogo: 1 }
+                projection: { name: 1, 
+                              email: 1, 
+                              companyName: 1, 
+                              companyLogo: 1 }
             }).toArray();
             res.send(result);
         });
@@ -358,9 +388,9 @@ async function run() {
             const joinData = req.body;
             const user = await usersCollection.findOne({ email: joinData.userEmail });
             
-            if (user?.hrEmail || user?.status === 'pending') {
+              if (user?.hrEmail || user?.status === 'pending') {
                 return res.status(400).send({ message: "Already affiliated or pending!" });
-            }
+              }
 
             const filter = { email: joinData.userEmail };
             const updateDoc = {
@@ -374,31 +404,82 @@ async function run() {
             res.send(result);
         });
 
-        //   Asset Requesting Process
         app.get('/my-company-assets/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const { search, filter } = req.query;
             const user = await usersCollection.findOne({ email: email });
-            if (!user || !user.hrEmail) return res.send([]);
+              if (!user || !user.hrEmail) return res.send([]);
 
             let query = { hrEmail: user.hrEmail, productQuantity: { $gt: 0 } };
-            if (search) query.productName = { $regex: search, $options: 'i' };
-            if (filter) query.productType = filter;
+              if (search) query.productName = { $regex: search, $options: 'i' };
+              if (filter) query.productType = filter;
 
             const result = await assetsCollection.find(query).toArray();
             res.send(result);
         });
 
+        // এমপ্লয়ী যেসব কোম্পানিতে রিকোয়েস্ট করেছে বা যুক্ত আছে তাদের লিস্ট বের করা
+        app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
+          try {
+            const email = req.params.email.toLowerCase();
+        
+        // requestsCollection থেকে ওই ইউজারের সব রিকোয়েস্ট খুঁজে বের করা
+            const approvedRequests = await requestsCollection.find({ 
+            userEmail: email 
+        }).toArray();
+
+        // ইউনিক কোম্পানি ইমেইল এবং নামগুলো ফিল্টার করা
+            const companiesMap = {};
+        approvedRequests.forEach(item => {
+               if (item.hrEmail && !companiesMap[item.hrEmail]) {
+                companiesMap[item.hrEmail] = { 
+                    hrEmail: item.hrEmail, 
+                    companyName: item.companyName || "Unknown Company"
+                };
+            }
+        });
+
+            const companies = Object.values(companiesMap);
+        res.send(companies);
+    } catch (error) {
+        res.status(500).send({ message: "Error fetching company list" });
+    }
+    });
+        //   Asset Requesting Process
         app.post('/asset-requests', verifyToken, async (req, res) => {
             const requestData = req.body;
             const result = await requestsCollection.insertOne(requestData);
             res.send(result);
         });
 
+        // HR Asset Assignment & Request Management
+        app.post('/assign-asset', verifyToken, verifyHR, async (req, res) => {
+            const assignment = req.body; // { assetId, userEmail, userName, hrEmail }
+    
+         // save approval data to requests collection
+            const result = await requestsCollection.insertOne({
+                                                               ...assignment,
+                                                               status: 'Approved',
+                                                               approvalDate: new Date().toLocaleDateString(),
+                                                               requestDate: new Date().toLocaleDateString(), 
+                                                               type: 'AssignedByHR'
+                                                            });
+
+            // decrease asset quantity by 1                                                
+             if (result.insertedId) {
+                await assetsCollection.updateOne(
+                                               { _id: new ObjectId(assignment.assetId) },
+                                               { $inc: { productQuantity: -1 } }
+             );
+            }
+
+            res.send(result);
+        });
+
         app.post('/requests', verifyToken, async (req, res) => {
             const request = req.body;
             // if employee click different company assets request for join company
-            if (request.type==="JoinRequest"){
+              if (request.type==="JoinRequest"){
                 const filter={email:request.userEmail};
                 const updateDoc={
                     $set:{hrEmail:request.hrEmail,
@@ -415,7 +496,7 @@ async function run() {
         app.get('/all-requests/:email', verifyToken, verifyHR, async (req, res) => {
             const { search } = req.query;
             let query = { hrEmail: req.params.email };
-            if (search) {
+              if (search) {
                 query.$or = [
                     { userEmail: { $regex: search, $options: 'i' } },
                     { userName: { $regex: search, $options: 'i' } }
@@ -426,41 +507,43 @@ async function run() {
         });
 
         app.patch('/requests/:id', verifyToken, verifyHR, async (req, res) => {
-    try {
-        const { status, assetId } = req.body; // status: 'Approved' or 'Rejected'
-        const id = req.params.id;
+          try {
+            const { status, assetId } = req.body; 
+            const id = req.params.id;
 
-        const result = await requestsCollection.updateOne(
+            const result = await requestsCollection.updateOne(
             { _id: new ObjectId(id) },
             { $set: { status, approvalDate: new Date().toLocaleDateString() } }
-        );
+            );
 
-        if (status === 'Approved' && result.modifiedCount > 0) {
-            await assetsCollection.updateOne(
+              if (status === 'Approved' && result.modifiedCount > 0) {
+               await assetsCollection.updateOne(
                 { _id: new ObjectId(assetId) },
                 { $inc: { productQuantity: -1 } }
-            );
-        }
+               );}
 
-        res.send(result);
-        } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: "Internal Server Error" });
-       }
-});
+            res.send(result);
+            } 
+            catch (error) {
+            console.error(error);
+            res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
 
         app.get('/my-requests/:email', verifyToken, async (req, res) => {
-            const { search, status, type } = req.query;
+            const { search, status, type,hrEmail } = req.query;
             let query = { userEmail: req.params.email };
-            if (search) query.productName = { $regex: search, $options: 'i' };
-            if (status) query.status = status;
-            if (type) query.productType = type;
+              if(hrEmail) query.hrEmail=hrEmail;
+              if (search) query.productName = { $regex: search, $options: 'i' };
+              if (status) query.status = status;
+              if (type) query.productType = type;
             const result = await requestsCollection.find(query).toArray();
             res.send(result);
         });
 
         app.delete('/requests/cancel/:id', verifyToken, async (req, res) => {
-            const result = await requestsCollection.deleteOne({ _id: new ObjectId(req.params.id), status: 'Pending' });
+            const result = await requestsCollection.deleteOne({ _id: new ObjectId(req.params.id), 
+                                                                status: 'Pending' });
             res.send(result);
         });
 
@@ -470,9 +553,10 @@ async function run() {
                 { _id: new ObjectId(req.params.id) },
                 { $set: { status: 'Returned' } }
             );
-            if (updateRequest.modifiedCount > 0) {
-                await assetsCollection.updateOne({ _id: new ObjectId(assetId) }, { $inc: { productQuantity: 1 } });
-            }
+              if (updateRequest.modifiedCount > 0) {
+                await assetsCollection.updateOne({ _id: new ObjectId(assetId) }, 
+                                                 { $inc: { productQuantity: 1 } });
+              }
             res.send(updateRequest);
         });
 
@@ -495,13 +579,13 @@ async function run() {
         app.get('/team-birthdays/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const user = await usersCollection.findOne({ email });
-            if (!user || !user.hrEmail) return res.send([]);
+              if (!user || !user.hrEmail) return res.send([]);
             const teamMembers = await usersCollection.find({ hrEmail: user.hrEmail, dob: { $exists: true } }).toArray();
             const today = new Date();
             const currentMonth = today.getMonth() + 1;
             const currentDate = today.getDate();
             const upcomingBirthdays = teamMembers.filter(member => {
-                if (!member.dob) return false;
+              if (!member.dob) return false;
                 const [year, month, day] = member.dob.split('-').map(Number);
                 return month === currentMonth && day >= currentDate;
             }).sort((a, b) => {
@@ -528,7 +612,10 @@ async function run() {
             const email = req.params.email;
             const { newLimit, transactionId } = req.body;
             const updateDoc = {
-                $set: { employeeLimit: parseInt(newLimit), status: 'active', lastTransactionId: transactionId }
+                $set: { employeeLimit: parseInt(newLimit), 
+                        status: 'active',
+                        lastTransactionId: transactionId 
+                      }
             };
             const result = await usersCollection.updateOne({ email: email }, updateDoc);
             res.send({ success: result.modifiedCount > 0 || result.matchedCount > 0 });
@@ -537,17 +624,26 @@ async function run() {
         // Dashboard Statistics
         app.get('/hr-stats/:email', verifyToken, verifyHR, async (req, res) => {
             const email = req.params.email;
-            const pendingRequests = await requestsCollection.find({ hrEmail: email, status: 'Pending' }).limit(5).toArray();
-            const limitedStock = await assetsCollection.find({ hrEmail: email, productQuantity: { $lt: 10 } }).toArray();
-            const returnableCount = await assetsCollection.countDocuments({ hrEmail: email, productType: 'Returnable' });
-            const nonReturnableCount = await assetsCollection.countDocuments({ hrEmail: email, productType: 'Non-returnable' });
-            res.send({ pendingRequests, limitedStock, chartData: [{ name: 'Returnable', value: returnableCount }, { name: 'Non-returnable', value: nonReturnableCount }] });
+            const pendingRequests = await requestsCollection.find({ hrEmail: email,
+                                                                    status: 'Pending' }).limit(5).toArray();
+            const limitedStock = await assetsCollection.find({ hrEmail: email, 
+                                                               productQuantity: { $lt: 10 } }).toArray();
+            const returnableCount = await assetsCollection.countDocuments({ hrEmail: email, 
+                                                                            productType: 'Returnable' });
+            const nonReturnableCount = await assetsCollection.countDocuments({ hrEmail: email, 
+                                                                               productType: 'Non-returnable' });
+            res.send({ pendingRequests, limitedStock, chartData: [{ name: 'Returnable', 
+                                                                    value: returnableCount },
+                                                                    { name: 'Non-returnable', 
+                                                                      value: nonReturnableCount }]
+                                                                     });
         });
 
         app.get('/employee-stats/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const userData = await usersCollection.findOne({ email: email });
-            const pendingRequests = await requestsCollection.find({ userEmail: email, status: 'Pending' }).toArray();
+            const pendingRequests = await requestsCollection.find({ userEmail: email, 
+                                                                    status: 'Pending' }).toArray();
             const allRequests = await requestsCollection.find({ userEmail: email }).toArray();
             const currentMonth = new Date().getMonth();
             const monthlyCount = allRequests.filter(r => new Date(r.requestDate).getMonth() === currentMonth).length;
@@ -555,7 +651,10 @@ async function run() {
             res.send({ userData, pendingRequests, monthlyCount, monthlyAssets});
         });
 
-    } finally { }
+
+
+
+     } finally { }
 }
 run().catch(console.dir);
 
