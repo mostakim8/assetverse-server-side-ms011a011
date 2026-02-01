@@ -417,34 +417,31 @@ async function run() {
             const result = await assetsCollection.find(query).toArray();
             res.send(result);
         });
-
-        app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
+         app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
           try {
-            const email = req.params.email.toLowerCase();
+           const email = req.params.email.toLowerCase();
+           const userProfile = await usersCollection.findOne({ email });
+           const requestedHrEmails = await requestsCollection.distinct("hrEmail", { userEmail: email });
+           const combinedEmails = [...new Set([
+                                   ...(userProfile?.hrEmail ? [userProfile.hrEmail] : []),
+                                   ...requestedHrEmails
+                                  ])];
 
-            const hrEmails = await requestsCollection.distinct("hrEmail", { userEmail: email });
+             if (combinedEmails.length === 0) return res.send([]);
 
-           if (!hrEmails || hrEmails.length === 0) {
-            return res.send([]);
-        }
-
-           const companies = await usersCollection.find(
-            { email: { $in: hrEmails } },
-            { projection: { email: 1, 
-                            companyName: 1, 
-                            companyLogo: 1, 
-                            _id: 0 } }
+          const companies = await usersCollection.find(
+            { email: { $in: combinedEmails } },
+            { projection: { email: 1, companyName: 1, companyLogo: 1, _id: 0 } }
         ).toArray();
 
            const formattedCompanies = companies.map(company => ({
                                                                  hrEmail: company.email,
-                                                                 companyName: company.companyName || "Unknown Company",
+                                                                 companyName: company.companyName || "Official Company",
                                                                  companyLogo: company.companyLogo
         }));
 
         res.send(formattedCompanies);
     } catch (error) {
-        console.error("Error:", error);
         res.status(500).send({ message: "Error fetching company list" });
     }
 });
@@ -562,6 +559,30 @@ async function run() {
               }
             res.send(updateRequest);
         });
+
+        app.patch('/return-asset/:id', verifyToken, async (req, res) => {
+    try {
+        const id = req.params.id;
+        const { assetId } = req.body; // ফ্রন্টএন্ড থেকে অরিজিনাল অ্যাসেট আইডি পাঠাতে হবে পরিমাণ বাড়াতে
+        
+        const filter = { _id: new ObjectId(id) };
+        const updateRequest = await requestsCollection.updateOne(
+            filter, 
+            { $set: { status: 'Returned', returnDate: new Date().toLocaleDateString() } }
+        );
+
+        if (updateRequest.modifiedCount > 0 && assetId) {
+            // অ্যাসেটের পরিমাণ ১ বাড়িয়ে দেওয়া হচ্ছে
+            await assetsCollection.updateOne(
+                { _id: new ObjectId(assetId) },
+                { $inc: { productQuantity: 1 } }
+            );
+        }
+        res.send(updateRequest);
+    } catch (error) {
+        res.status(500).send({ message: "Error returning asset" });
+    }
+});
 
         //  Notice & Birthdays
         app.post('/notices', verifyToken, verifyHR, async (req, res) => {
