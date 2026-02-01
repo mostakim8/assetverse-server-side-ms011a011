@@ -417,32 +417,32 @@ async function run() {
             const result = await assetsCollection.find(query).toArray();
             res.send(result);
         });
-         app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
-          try {
-           const email = req.params.email.toLowerCase();
-           const userProfile = await usersCollection.findOne({ email });
-           const requestedHrEmails = await requestsCollection.distinct("hrEmail", { userEmail: email });
-           const combinedEmails = [...new Set([
-                                   ...(userProfile?.hrEmail ? [userProfile.hrEmail] : []),
-                                   ...requestedHrEmails
-                                  ])];
+      app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
+    try {
+        const email = req.params.email.toLowerCase();
 
-             if (combinedEmails.length === 0) return res.send([]);
+        // ইউজার প্রোফাইল এবং রিকোয়েস্ট টেবিল থেকে ইউনিক HR ইমেইল সংগ্রহ
+        const userProfile = await usersCollection.findOne({ email });
+        
+        // নিশ্চিত করুন requestsCollection ভেরিয়েবলটি run() ফাংশনের উপরে ডিফাইন করা আছে
+        const requestedHrEmails = await requestsCollection.distinct("hrEmail", { userEmail: email });
 
-          const companies = await usersCollection.find(
-            { email: { $in: combinedEmails } },
+        const combinedEmails = [...new Set([
+            ...(userProfile?.hrEmail ? [userProfile.hrEmail] : []),
+            ...requestedHrEmails
+        ])];
+
+        if (combinedEmails.length === 0) return res.send([]);
+
+        const companies = await usersCollection.find(
+            { email: { $in: combinedEmails }, role: 'hr' },
             { projection: { email: 1, companyName: 1, companyLogo: 1, _id: 0 } }
         ).toArray();
 
-           const formattedCompanies = companies.map(company => ({
-                                                                 hrEmail: company.email,
-                                                                 companyName: company.companyName || "Official Company",
-                                                                 companyLogo: company.companyLogo
-        }));
-
-        res.send(formattedCompanies);
+        res.send(companies);
     } catch (error) {
-        res.status(500).send({ message: "Error fetching company list" });
+        console.error("Internal Error:", error);
+        res.status(500).send({ message: "Server database query failed" });
     }
 });
         //   Asset Requesting Process
@@ -560,10 +560,10 @@ async function run() {
             res.send(updateRequest);
         });
 
-        app.patch('/return-asset/:id', verifyToken, async (req, res) => {
+      app.patch('/return-asset/:id', verifyToken, async (req, res) => {
     try {
         const id = req.params.id;
-        const { assetId } = req.body; // ফ্রন্টএন্ড থেকে অরিজিনাল অ্যাসেট আইডি পাঠাতে হবে পরিমাণ বাড়াতে
+        const { assetId } = req.body; 
         
         const filter = { _id: new ObjectId(id) };
         const updateRequest = await requestsCollection.updateOne(
@@ -571,8 +571,8 @@ async function run() {
             { $set: { status: 'Returned', returnDate: new Date().toLocaleDateString() } }
         );
 
+        // আপনার ডাটাবেস স্ক্রিনশটে দেখা যাচ্ছে assetId একটি স্ট্রিং
         if (updateRequest.modifiedCount > 0 && assetId) {
-            // অ্যাসেটের পরিমাণ ১ বাড়িয়ে দেওয়া হচ্ছে
             await assetsCollection.updateOne(
                 { _id: new ObjectId(assetId) },
                 { $inc: { productQuantity: 1 } }
@@ -580,7 +580,7 @@ async function run() {
         }
         res.send(updateRequest);
     } catch (error) {
-        res.status(500).send({ message: "Error returning asset" });
+        res.status(500).send({ message: "Error updating return status" });
     }
 });
 
