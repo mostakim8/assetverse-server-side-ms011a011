@@ -417,29 +417,40 @@ async function run() {
             const result = await assetsCollection.find(query).toArray();
             res.send(result);
         });
-      app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
+     app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
     try {
         const email = req.params.email.toLowerCase();
 
-        // ইউজার প্রোফাইল এবং রিকোয়েস্ট টেবিল থেকে ইউনিক HR ইমেইল সংগ্রহ
+        // ইউজার প্রোফাইল থেকে তার বর্তমান কোম্পানির HR ইমেইল সংগ্রহ
         const userProfile = await usersCollection.findOne({ email });
         
-        // নিশ্চিত করুন requestsCollection ভেরিয়েবলটি run() ফাংশনের উপরে ডিফাইন করা আছে
-        const requestedHrEmails = await requestsCollection.distinct("hrEmail", { userEmail: email });
+        // রিকোয়েস্ট টেবিল থেকে ওই ইউজারের সব রিকোয়েস্টের ইউনিক HR ইমেইল সংগ্রহ
+        const requestedHrEmails = await requestsCollection.distinct("hrEmail", { 
+            userEmail: { $regex: new RegExp(`^${email}$`, 'i') } 
+        });
 
+        // সব HR ইমেইল একত্র করা (প্রোফাইল + রিকোয়েস্ট)
         const combinedEmails = [...new Set([
             ...(userProfile?.hrEmail ? [userProfile.hrEmail] : []),
             ...requestedHrEmails
-        ])];
+        ])].filter(Boolean);
 
         if (combinedEmails.length === 0) return res.send([]);
 
+        // HR ইমেইলগুলোর বিপরীতে কোম্পানির তথ্য আনা
         const companies = await usersCollection.find(
             { email: { $in: combinedEmails }, role: 'hr' },
             { projection: { email: 1, companyName: 1, companyLogo: 1, _id: 0 } }
         ).toArray();
 
-        res.send(companies);
+        // ফ্রন্টএন্ডের জন্য পরিষ্কার ফরম্যাট: email কে hrEmail হিসেবে পাঠানো
+        const formattedCompanies = companies.map(company => ({
+            hrEmail: company.email,
+            companyName: company.companyName,
+            companyLogo: company.companyLogo
+        }));
+
+        res.send(formattedCompanies);
     } catch (error) {
         console.error("Internal Error:", error);
         res.status(500).send({ message: "Server database query failed" });
@@ -530,26 +541,26 @@ async function run() {
             }
         });
 
-       app.get('/my-requests/:email', verifyToken, async (req, res) => {
+    app.get('/my-requests/:email', verifyToken, async (req, res) => {
     try {
         const { search, type, hrEmail } = req.query;
         const userEmail = req.params.email;
 
-        // মেইন ফিল্টার: ইউজারের ইমেইল
-        let query = { userEmail: userEmail };
+        // মেইন ফিল্টার: ইউজার ইমেইল (Case-insensitive check)
+        let query = { userEmail: { $regex: new RegExp(`^${userEmail}$`, 'i') } };
 
-        // ড্রপডাউন থেকে আসা কোম্পানির ইমেইল দিয়ে ফিল্টার
+        // ড্রপডাউন থেকে আসা নির্দিষ্ট hrEmail দিয়ে ফিল্টার
         if (hrEmail && hrEmail !== "") {
             query.hrEmail = hrEmail;
         }
 
-        // সার্চ এবং টাইপ ফিল্টার
         if (search) query.productName = { $regex: search, $options: 'i' };
         if (type && type !== "All") query.productType = type;
 
         const result = await requestsCollection.find(query).toArray();
         res.send(result);
     } catch (error) {
+        console.error("Error in my-requests:", error);
         res.status(500).send({ message: "Internal Server Error" });
     }
 });
