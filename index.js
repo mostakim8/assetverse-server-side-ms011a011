@@ -29,7 +29,7 @@ const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@aimodel
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
-        strict: true,
+        strict: false, 
         deprecationErrors: true,
     }
 });
@@ -421,15 +421,19 @@ async function run() {
     try {
         const email = req.params.email.toLowerCase();
 
-        // ইউজার প্রোফাইল থেকে তার বর্তমান কোম্পানির HR ইমেইল সংগ্রহ
         const userProfile = await usersCollection.findOne({ email });
         
-        // রিকোয়েস্ট টেবিল থেকে ওই ইউজারের সব রিকোয়েস্টের ইউনিক HR ইমেইল সংগ্রহ
-        const requestedHrEmails = await requestsCollection.distinct("hrEmail", { 
-            userEmail: { $regex: new RegExp(`^${email}$`, 'i') } 
-        });
+        const requestedHrEmailsData = await requestsCollection.aggregate([
+            { 
+                $match: { userEmail: { $regex: new RegExp(`^${email}$`, 'i') } } 
+            },
+            { 
+                $group: { _id: "$hrEmail" } 
+            }
+        ]).toArray();
 
-        // সব HR ইমেইল একত্র করা (প্রোফাইল + রিকোয়েস্ট)
+        const requestedHrEmails = requestedHrEmailsData.map(item => item._id);
+
         const combinedEmails = [...new Set([
             ...(userProfile?.hrEmail ? [userProfile.hrEmail] : []),
             ...requestedHrEmails
@@ -437,13 +441,11 @@ async function run() {
 
         if (combinedEmails.length === 0) return res.send([]);
 
-        // HR ইমেইলগুলোর বিপরীতে কোম্পানির তথ্য আনা
         const companies = await usersCollection.find(
             { email: { $in: combinedEmails }, role: 'hr' },
             { projection: { email: 1, companyName: 1, companyLogo: 1, _id: 0 } }
         ).toArray();
 
-        // ফ্রন্টএন্ডের জন্য পরিষ্কার ফরম্যাট: email কে hrEmail হিসেবে পাঠানো
         const formattedCompanies = companies.map(company => ({
             hrEmail: company.email,
             companyName: company.companyName,
@@ -541,15 +543,13 @@ async function run() {
             }
         });
 
-    app.get('/my-requests/:email', verifyToken, async (req, res) => {
+     app.get('/my-requests/:email', verifyToken, async (req, res) => {
     try {
         const { search, type, hrEmail } = req.query;
         const userEmail = req.params.email;
 
-        // মেইন ফিল্টার: ইউজার ইমেইল (Case-insensitive check)
         let query = { userEmail: { $regex: new RegExp(`^${userEmail}$`, 'i') } };
 
-        // ড্রপডাউন থেকে আসা নির্দিষ্ট hrEmail দিয়ে ফিল্টার
         if (hrEmail && hrEmail !== "") {
             query.hrEmail = hrEmail;
         }
@@ -560,7 +560,6 @@ async function run() {
         const result = await requestsCollection.find(query).toArray();
         res.send(result);
     } catch (error) {
-        console.error("Error in my-requests:", error);
         res.status(500).send({ message: "Internal Server Error" });
     }
 });
