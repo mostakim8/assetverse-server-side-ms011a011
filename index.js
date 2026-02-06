@@ -271,14 +271,26 @@ async function run() {
 
         //  Asset Management (Add, Get, Update, Delete) 
          app.post('/assets', verifyToken, verifyHR, async (req, res) => {
-            const assetData = req.body;
-            const result = await assetsCollection.insertOne({
-                ...assetData,
-                productQuantity: parseInt(assetData.productQuantity),
-                addedDate: new Date().toLocaleDateString()
-            });
-            res.send(result);
-        });
+    try {
+        const assetData = req.body;
+        
+        const newAsset = {
+            productName: assetData.productName,
+            productImage: assetData.productImage,
+            productType: assetData.productType, // "Returnable" | "Non-returnable"
+            productQuantity: parseInt(assetData.productQuantity),
+            availableQuantity: parseInt(assetData.productQuantity), 
+            dateAdded: new Date(), 
+            hrEmail: assetData.hrEmail, 
+            companyName: assetData.companyName
+        };
+
+        const result = await assetsCollection.insertOne(newAsset);
+        res.send(result);
+    } catch (error) {
+        res.status(500).send({ message: "Asset add Problem", error });
+    }
+});
 
         app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
           try {
@@ -418,7 +430,7 @@ async function run() {
             res.send(result);
         });
      app.get('/my-approved-companies/:email', verifyToken, async (req, res) => {
-    try {
+       try {
         const email = req.params.email.toLowerCase();
 
         const userProfile = await usersCollection.findOne({ email });
@@ -442,8 +454,12 @@ async function run() {
         if (combinedEmails.length === 0) return res.send([]);
 
         const companies = await usersCollection.find(
-            { email: { $in: combinedEmails }, role: 'hr' },
-            { projection: { email: 1, companyName: 1, companyLogo: 1, _id: 0 } }
+            { email: { $in: combinedEmails }, 
+              role: 'hr' },
+            { projection: { email: 1, 
+                           companyName: 1, 
+                           companyLogo: 1, 
+                           _id: 0 } }
         ).toArray();
 
         const formattedCompanies = companies.map(company => ({
@@ -457,37 +473,52 @@ async function run() {
         console.error("Internal Error:", error);
         res.status(500).send({ message: "Server database query failed" });
     }
-});
+    });
         //   Asset Requesting Process
         app.post('/asset-requests', verifyToken, async (req, res) => {
             const requestData = req.body;
-            const result = await requestsCollection.insertOne(requestData);
+            const result = await requestsCollection.insertOne({...requestData,requestStatus:'Pending', requestDate: new Date()
+                
+            });
             res.send(result);
         });
 
         // HR Asset Assignment & Request Management
         app.post('/assign-asset', verifyToken, verifyHR, async (req, res) => {
-            const assignment = req.body; // { assetId, userEmail, userName, hrEmail }
-    
-         // save approval data to requests collection
-            const result = await requestsCollection.insertOne({
-                                                               ...assignment,
-                                                               status: 'Approved',
-                                                               approvalDate: new Date().toLocaleDateString(),
-                                                               requestDate: new Date().toLocaleDateString(), 
-                                                               type: 'AssignedByHR'
-                                                            });
+    try {
+        const assignment = req.body; 
 
-            // decrease asset quantity by 1                                                
-             if (result.insertedId) {
-                await assetsCollection.updateOne(
-                                               { _id: new ObjectId(assignment.assetId) },
-                                               { $inc: { productQuantity: -1 } }
-             );
-            }
+        const requestData = {
+            assetId: new ObjectId(assignment.assetId),
+            assetName: assignment.productName, 
+            assetType: assignment.productType,
+            assetImage: assignment.productImage, 
+            requesterName: assignment.userName,
+            requesterEmail: assignment.userEmail,
+            hrEmail: assignment.hrEmail,
+            hrName: assignment.hrName, 
+            requestDate: new Date(),
+            approvalDate: new Date(), 
+            requestStatus: "approved", 
+            note: "Directly assigned by HR",
+            processedBy: assignment.hrEmail 
+        };
 
-            res.send(result);
-        });
+        const result = await requestsCollection.insertOne(requestData);
+
+        if (result.insertedId) {
+            await assetsCollection.updateOne(
+                { _id: new ObjectId(assignment.assetId) },
+                { $inc: { availableQuantity: -1 } } 
+            );
+        }
+
+        res.send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal Server Error" });
+    }
+});
 
         app.post('/requests', verifyToken, async (req, res) => {
             const request = req.body;
@@ -544,7 +575,7 @@ async function run() {
         });
 
      app.get('/my-requests/:email', verifyToken, async (req, res) => {
-    try {
+       try {
         const { search, type, hrEmail } = req.query;
         const userEmail = req.params.email;
 
@@ -559,10 +590,11 @@ async function run() {
 
         const result = await requestsCollection.find(query).toArray();
         res.send(result);
-    } catch (error) {
+        } 
+        catch (error) {
         res.status(500).send({ message: "Internal Server Error" });
-    }
-});
+       }
+    });
 
         app.delete('/requests/cancel/:id', verifyToken, async (req, res) => {
             const result = await requestsCollection.deleteOne({ _id: new ObjectId(req.params.id), 
