@@ -530,16 +530,29 @@ async function run() {
             }
         });
 
-        app.get('/my-requests/:email', verifyToken, async (req, res) => {
-            const { search, status, type,hrEmail } = req.query;
-            let query = { userEmail: req.params.email };
-              if(hrEmail) query.hrEmail=hrEmail;
-              if (search) query.productName = { $regex: search, $options: 'i' };
-              if (status) query.status = status;
-              if (type) query.productType = type;
-            const result = await requestsCollection.find(query).toArray();
-            res.send(result);
-        });
+       app.get('/my-requests/:email', verifyToken, async (req, res) => {
+    try {
+        const { search, type, hrEmail } = req.query;
+        const userEmail = req.params.email;
+
+        // মেইন ফিল্টার: ইউজারের ইমেইল
+        let query = { userEmail: userEmail };
+
+        // ড্রপডাউন থেকে আসা কোম্পানির ইমেইল দিয়ে ফিল্টার
+        if (hrEmail && hrEmail !== "") {
+            query.hrEmail = hrEmail;
+        }
+
+        // সার্চ এবং টাইপ ফিল্টার
+        if (search) query.productName = { $regex: search, $options: 'i' };
+        if (type && type !== "All") query.productType = type;
+
+        const result = await requestsCollection.find(query).toArray();
+        res.send(result);
+    } catch (error) {
+        res.status(500).send({ message: "Internal Server Error" });
+    }
+});
 
         app.delete('/requests/cancel/:id', verifyToken, async (req, res) => {
             const result = await requestsCollection.deleteOne({ _id: new ObjectId(req.params.id), 
