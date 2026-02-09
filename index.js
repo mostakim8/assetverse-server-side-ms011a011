@@ -271,7 +271,7 @@ async function run() {
 
         //  Asset Management (Add, Get, Update, Delete) 
          app.post('/assets', verifyToken, verifyHR, async (req, res) => {
-    try {
+          try {
         const assetData = req.body;
         
         const newAsset = {
@@ -290,7 +290,7 @@ async function run() {
     } catch (error) {
         res.status(500).send({ message: "Asset add Problem", error });
     }
-});
+    });
 
         app.get('/assets/:email', verifyToken, verifyHR, async (req, res) => {
           try {
@@ -476,12 +476,31 @@ async function run() {
     });
         //   Asset Requesting Process
         app.post('/asset-requests', verifyToken, async (req, res) => {
-            const requestData = req.body;
-            const result = await requestsCollection.insertOne({...requestData,requestStatus:'Pending', requestDate: new Date()
-                
-            });
-            res.send(result);
-        });
+    try {
+        const requestData = req.body;
+        
+        const finalRequest = {
+            assetId: new ObjectId(requestData.assetId),
+            assetName: requestData.productName, 
+            assetType: requestData.productType,
+            assetImage: requestData.productImage, 
+            requesterName: requestData.userName,
+            requesterEmail: requestData.userEmail,
+            hrEmail: requestData.hrEmail,
+            hrName: requestData.hrName, 
+            requestDate: new Date(),
+            approvalDate: null, 
+            requestStatus: "pending", 
+            note: requestData.note || "",
+            processedBy: null 
+        };
+
+        const result = await requestsCollection.insertOne(finalRequest);
+        res.send(result);
+    } catch (error) {
+        res.status(500).send({ message: "Sending Request Failed" });
+    }
+});
 
         // HR Asset Assignment & Request Management
         app.post('/assign-asset', verifyToken, verifyHR, async (req, res) => {
