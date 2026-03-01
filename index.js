@@ -722,6 +722,10 @@ async function run() {
         // Dashboard Statistics
         app.get('/hr-stats/:email', verifyToken, verifyHR, async (req, res) => {
             const email = req.params.email;
+            const teamCount = await usersCollection.countDocuments({
+              hrEmail: email,
+              role: 'employee',
+            });
             const pendingRequests = await requestsCollection.find({ hrEmail: email,
                                                                     status: 'Pending' }).limit(5).toArray();
             const limitedStock = await assetsCollection.find({ hrEmail: email, 
@@ -730,7 +734,7 @@ async function run() {
                                                                             productType: 'Returnable' });
             const nonReturnableCount = await assetsCollection.countDocuments({ hrEmail: email, 
                                                                                productType: 'Non-returnable' });
-            res.send({ pendingRequests, limitedStock, chartData: [{ name: 'Returnable', 
+            res.send({ teamCount, pendingRequests, limitedStock, chartData: [{ name: 'Returnable', 
                                                                     value: returnableCount },
                                                                     { name: 'Non-returnable', 
                                                                       value: nonReturnableCount }]
