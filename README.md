@@ -1,4 +1,4 @@
-# AssetVerse - Server-Side 
+# AssetVerse - Server-Side API ⚙️
 
 This repository contains the backend RESTful API service for **AssetVerse**, a B2B Corporate Asset Management System. It manages user authentication, role-based data isolation, subscription payments via Stripe, and inventory query aggregation.
 
@@ -23,6 +23,7 @@ This repository contains the backend RESTful API service for **AssetVerse**, a B
 * **Environment Security:** Sensitive credentials (DB keys, JWT secrets, Stripe keys) isolated via environment variables.
 
 ---
+
 ## ⚙️ Environment Variables Setup
 
 To run this backend project locally, create a `.env` file in the root directory and configure the following variables:
@@ -33,22 +34,20 @@ DB_USER=your_mongodb_user
 DB_PASS=your_mongodb_password
 ACCESS_TOKEN_SECRET=your_jwt_secret_key
 STRIPE_SECRET_KEY=your_stripe_secret_key
+```
 
-
-🚀 Local Installation & Setup Guide
-
+## 🚀 How to Run Locally
 Clone the repository:
 
 Bash
 git clone [https://github.com/mostakim8/assetverse-server-side-ms011a011.git](https://github.com/mostakim8/assetverse-server-side-ms011a011.git)
-cd assetverse-server-side-ms011a011
-Install dependencies:
+*c d assetverse-server-side-ms011a011
+**Install dependencies:**
 
-Bash
-npm install
-Start the development server:
+* Bash
+* npm install
 
-Bash
-npm start
-# or for development mode (if nodemon is configured)
-npm run dev
+**Start the development server:**
+
+* Bash
+* npm start
