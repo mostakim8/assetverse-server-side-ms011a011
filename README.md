@@ -39,9 +39,10 @@ STRIPE_SECRET_KEY=your_stripe_secret_key
 ## 🚀 How to Run Locally
 Clone the repository:
 
-Bash
+* Bash
 git clone [https://github.com/mostakim8/assetverse-server-side-ms011a011.git](https://github.com/mostakim8/assetverse-server-side-ms011a011.git)
-*c d assetverse-server-side-ms011a011
+* cd assetverse-server-side-ms011a011
+
 **Install dependencies:**
 
 * Bash
